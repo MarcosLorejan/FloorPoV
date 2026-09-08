@@ -672,20 +672,21 @@ export function Settings() {
                   onBrowse={handleBrowseWowFolder}
                 />
                 <p className="mt-2 text-xs text-neutral-400">
-                  Select your WoW client folder. FloorPoV reads{" "}
-                  <span className="font-mono">Logs\WoWCombatLog*.txt</span> (for example{" "}
-                  <span className="font-mono">WoWCombatLog-021726_124240.txt</span>).
+                  Select your WoW client folder or its{" "}
+                  <span className="font-mono">Logs</span> directory. FloorPoV watches for{" "}
+                  <span className="font-mono">WoWCombatLog*.txt</span> and attaches when Archon
+                  creates the file.
                 </p>
                 {formData.wowFolder && isWowFolderValid && (
                   <p className="mt-2 inline-flex items-center gap-1.5 rounded-sm border border-emerald-300/30 bg-emerald-500/12 px-2 py-1 text-xs text-emerald-100">
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
-                    Combat log found!
+                    WoW folder looks valid. Combat log is optional until you enter a dungeon.
                   </p>
                 )}
                 {formData.wowFolder && !isWowFolderValid && (
                   <p className="mt-2 inline-flex items-center gap-1.5 rounded-sm border border-rose-300/30 bg-rose-500/12 px-2 py-1 text-xs text-rose-200">
                     <XCircle className="h-3.5 w-3.5 text-rose-300" />
-                    Could not find any logs in this folder.
+                    This does not look like a WoW client or Logs folder.
                   </p>
                 )}
               </div>

@@ -263,6 +263,172 @@ pub(crate) fn delete_recording_metadata(recording_path: &Path) -> Result<(), Str
     }
 }
 
+const LIBRARY_ZONE_SLUG_MAX_CHARS: usize = 48;
+
+pub(crate) fn rename_finalized_recording_if_named(output_path: &str) -> String {
+    match try_rename_finalized_recording(Path::new(output_path)) {
+        Ok(Some(renamed_path)) => renamed_path.to_string_lossy().to_string(),
+        Ok(None) => output_path.to_string(),
+        Err(error) => {
+            tracing::warn!(
+                output_path,
+                "Failed to rename recording from combat metadata: {error}"
+            );
+            output_path.to_string()
+        }
+    }
+}
+
+fn try_rename_finalized_recording(output_path: &Path) -> Result<Option<PathBuf>, String> {
+    if !output_path.exists() {
+        return Ok(None);
+    }
+
+    let Some(metadata) = read_recording_metadata(output_path)? else {
+        return Ok(None);
+    };
+
+    let Some(key_level) = metadata.key_level else {
+        return Ok(None);
+    };
+    let Some(zone_name) = metadata
+        .zone_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    else {
+        return Ok(None);
+    };
+
+    let timestamp_label = timestamp_label_from_recording_path(output_path);
+    let Some(stem) = library_filename_stem(zone_name, key_level, &timestamp_label) else {
+        return Ok(None);
+    };
+
+    let parent_directory = output_path.parent().ok_or_else(|| {
+        format!(
+            "Recording path '{}' has no parent directory",
+            output_path.display()
+        )
+    })?;
+    let target_path = unique_library_path(parent_directory, output_path, &stem);
+    if target_path == output_path {
+        return Ok(None);
+    }
+
+    std::fs::rename(output_path, &target_path).map_err(|error| {
+        format!(
+            "Failed to rename recording '{}' to '{}': {error}",
+            output_path.display(),
+            target_path.display()
+        )
+    })?;
+
+    let source_sidecar = metadata_sidecar_path(output_path);
+    let target_sidecar = metadata_sidecar_path(&target_path);
+    if source_sidecar.exists() {
+        if let Err(error) = std::fs::rename(&source_sidecar, &target_sidecar) {
+            tracing::warn!(
+                source = %source_sidecar.display(),
+                target = %target_sidecar.display(),
+                "Failed to rename recording metadata sidecar after library rename: {error}"
+            );
+        }
+    }
+
+    if let Ok(Some(mut renamed_metadata)) = read_recording_metadata(&target_path) {
+        if let Some(file_name) = target_path.file_name().and_then(|value| value.to_str()) {
+            renamed_metadata.recording_file = file_name.to_string();
+            if let Err(error) = write_recording_metadata(&target_path, &renamed_metadata) {
+                tracing::warn!(
+                    target = %target_path.display(),
+                    "Failed to update recording_file after library rename: {error}"
+                );
+            }
+        }
+    }
+
+    Ok(Some(target_path))
+}
+
+fn unique_library_path(parent_directory: &Path, current_path: &Path, stem: &str) -> PathBuf {
+    let first_candidate = parent_directory.join(format!("{stem}.mp4"));
+    if !first_candidate.exists() || first_candidate == current_path {
+        return first_candidate;
+    }
+
+    for index in 2..100 {
+        let candidate = parent_directory.join(format!("{stem}-{index}.mp4"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+
+    parent_directory.join(format!(
+        "{stem}-{}.mp4",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0)
+    ))
+}
+
+fn timestamp_label_from_recording_path(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|value| value.to_str())
+        .and_then(timestamp_label_from_stem)
+        .unwrap_or_else(|| chrono::Local::now().format("%Y%m%d-%H%M").to_string())
+}
+
+fn timestamp_label_from_stem(stem: &str) -> Option<String> {
+    let date_start = stem.len().checked_sub(15)?;
+    let date = stem.get(date_start..date_start + 8)?;
+    let separator = stem.as_bytes().get(date_start + 8)?;
+    let time = stem.get(date_start + 9..)?;
+    if *separator != b'_'
+        || !date.chars().all(|character| character.is_ascii_digit())
+        || time.len() < 4
+        || !time
+            .chars()
+            .take(4)
+            .all(|character| character.is_ascii_digit())
+    {
+        return None;
+    }
+
+    Some(format!("{date}-{}", &time[..4]))
+}
+
+fn library_filename_stem(zone_name: &str, key_level: u32, timestamp_label: &str) -> Option<String> {
+    let slug = slugify_library_name(zone_name);
+    if slug.is_empty() {
+        return None;
+    }
+
+    Some(format!("{slug}-{key_level}-{timestamp_label}"))
+}
+
+fn slugify_library_name(input: &str) -> String {
+    let mut slug = String::new();
+    let mut last_was_hyphen = false;
+
+    for character in input.chars() {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character.to_ascii_lowercase());
+            last_was_hyphen = false;
+            continue;
+        }
+
+        if !last_was_hyphen && !slug.is_empty() {
+            slug.push('-');
+            last_was_hyphen = true;
+        }
+    }
+
+    let trimmed = slug.trim_end_matches('-').to_string();
+    trimmed.chars().take(LIBRARY_ZONE_SLUG_MAX_CHARS).collect()
+}
+
 fn temporary_sidecar_path(sidecar_path: &Path) -> PathBuf {
     let Some(file_name) = sidecar_path.file_name().and_then(|value| value.to_str()) else {
         return sidecar_path.with_extension("meta.json.tmp");
@@ -274,8 +440,10 @@ fn temporary_sidecar_path(sidecar_path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        delete_recording_metadata, metadata_sidecar_path, read_recording_metadata,
-        write_recording_metadata, RecordingImportantEventMetadata, RecordingMetadata,
+        delete_recording_metadata, library_filename_stem, metadata_sidecar_path,
+        read_recording_metadata, rename_finalized_recording_if_named, slugify_library_name,
+        timestamp_label_from_stem, write_recording_metadata, RecordingImportantEventMetadata,
+        RecordingMetadata,
     };
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -400,5 +568,93 @@ mod tests {
         std::fs::remove_file(&recording_path).expect("Failed to remove test recording file");
         std::fs::remove_dir_all(&temp_directory)
             .expect("Failed to remove temporary metadata test directory");
+    }
+
+    #[test]
+    fn slugs_dungeon_names_for_library_files() {
+        assert_eq!(slugify_library_name("Voidscar Arena"), "voidscar-arena");
+        assert_eq!(
+            slugify_library_name("Magisters' Terrace"),
+            "magisters-terrace"
+        );
+        assert_eq!(slugify_library_name("Nerub-ar Palace"), "nerub-ar-palace");
+    }
+
+    #[test]
+    fn builds_library_filename_from_dungeon_and_key() {
+        assert_eq!(
+            library_filename_stem("Voidscar Arena", 14, "20260908-1518").as_deref(),
+            Some("voidscar-arena-14-20260908-1518")
+        );
+        assert_eq!(
+            timestamp_label_from_stem("screen_recording_20260908_151832").as_deref(),
+            Some("20260908-1518")
+        );
+    }
+
+    #[test]
+    fn renames_finalized_mythic_plus_recording() {
+        let temp_directory = unique_temp_directory();
+        std::fs::create_dir_all(&temp_directory)
+            .expect("Failed to create temporary library rename directory");
+
+        let recording_path = temp_directory.join("screen_recording_20260908_151832.mp4");
+        std::fs::write(&recording_path, b"video")
+            .expect("Failed to create test recording for library rename");
+
+        let mut metadata = RecordingMetadata::new(&recording_path);
+        metadata.zone_name = Some("Voidscar Arena".to_string());
+        metadata.key_level = Some(14);
+        write_recording_metadata(&recording_path, &metadata)
+            .expect("Expected metadata write to succeed");
+
+        let renamed_path = rename_finalized_recording_if_named(
+            recording_path.to_str().expect("test path is utf-8"),
+        );
+        let expected_path = temp_directory.join("voidscar-arena-14-20260908-1518.mp4");
+
+        assert_eq!(Path::new(&renamed_path), expected_path.as_path());
+        assert!(expected_path.exists());
+        assert!(!recording_path.exists());
+
+        let renamed_metadata = read_recording_metadata(&expected_path)
+            .expect("Expected metadata read to succeed")
+            .expect("Expected renamed sidecar to exist");
+        assert_eq!(
+            renamed_metadata.recording_file,
+            "voidscar-arena-14-20260908-1518.mp4"
+        );
+
+        delete_recording_metadata(&expected_path).expect("Expected metadata delete to succeed");
+        std::fs::remove_file(&expected_path).expect("Failed to remove renamed recording");
+        std::fs::remove_dir_all(&temp_directory)
+            .expect("Failed to remove temporary library rename directory");
+    }
+
+    #[test]
+    fn keeps_timestamp_name_without_key_metadata() {
+        let temp_directory = unique_temp_directory();
+        std::fs::create_dir_all(&temp_directory)
+            .expect("Failed to create temporary library rename directory");
+
+        let recording_path = temp_directory.join("screen_recording_20260908_151832.mp4");
+        std::fs::write(&recording_path, b"video")
+            .expect("Failed to create test recording for library rename");
+
+        let metadata = RecordingMetadata::new(&recording_path);
+        write_recording_metadata(&recording_path, &metadata)
+            .expect("Expected metadata write to succeed");
+
+        let renamed_path = rename_finalized_recording_if_named(
+            recording_path.to_str().expect("test path is utf-8"),
+        );
+
+        assert_eq!(Path::new(&renamed_path), recording_path.as_path());
+        assert!(recording_path.exists());
+
+        delete_recording_metadata(&recording_path).expect("Expected metadata delete to succeed");
+        std::fs::remove_file(&recording_path).expect("Failed to remove test recording");
+        std::fs::remove_dir_all(&temp_directory)
+            .expect("Failed to remove temporary library rename directory");
     }
 }

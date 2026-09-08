@@ -93,7 +93,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     });
     if (!wowFolderIsValid) {
       if (settings.enableAutoRecording) {
-        setAutoRecordingConfigDetail("Auto recording: no WoWCombatLog*.txt found.");
+        setAutoRecordingConfigDetail("Auto recording: WoW folder is invalid.");
       }
       return false;
     }

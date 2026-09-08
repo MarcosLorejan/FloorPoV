@@ -18,7 +18,8 @@ use super::super::audio_pipeline::{
     run_system_audio_capture_to_queue,
 };
 use super::super::ffmpeg::{
-    append_runtime_capture_input_args, parse_ffmpeg_speed, resolve_video_filter,
+    append_runtime_capture_input_args, append_video_encoder_output_args, parse_ffmpeg_speed,
+    resolve_video_filter,
 };
 #[cfg(target_os = "windows")]
 use super::super::model::CREATE_NO_WINDOW;
@@ -593,8 +594,6 @@ pub(super) fn run_ffmpeg_recording_segment(
 
     let audio_port = audio_setup.as_ref().map(|s| s.port);
 
-    let bitrate_string = config.bitrate.to_string();
-    let buffer_size_string = config.bitrate.saturating_mul(2).to_string();
     let output_path_string = config.output_path.to_string_lossy().to_string();
 
     let mut command = Command::new(config.ffmpeg_binary_path);
@@ -674,19 +673,16 @@ pub(super) fn run_ffmpeg_recording_segment(
         command.arg("-vf").arg(&video_filter).arg("-an");
     }
 
-    command.arg("-c:v").arg(config.video_encoder);
-
-    if let Some(preset) = config.encoder_preset {
-        command.arg("-preset").arg(preset);
-    }
+    append_video_encoder_output_args(
+        &mut command,
+        config.video_encoder,
+        config.encoder_preset,
+        config.video_quality,
+        config.output_frame_rate,
+        config.bitrate,
+    );
 
     command
-        .arg("-b:v")
-        .arg(&bitrate_string)
-        .arg("-maxrate")
-        .arg(&bitrate_string)
-        .arg("-bufsize")
-        .arg(&buffer_size_string)
         .arg("-fps_mode")
         .arg("cfr")
         .arg("-max_muxing_queue_size")

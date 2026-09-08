@@ -18,6 +18,7 @@ import { type GameMode } from "../../types/ui";
 import { formatBytes, formatDate, formatEncounterCategory, formatTime, getEventTypeLabel } from "../../utils/format";
 import { getRecordingDisplayTitle } from "../../utils/recording-title";
 import { GameEvents } from "../events/GameEvents";
+import { PlaybackEventList } from "../events/PlaybackEventList";
 import { VideoPlayer } from "../playback/VideoPlayer";
 import { TabControls, type TabControlItem } from "../ui/TabControls";
 import { GameModeRecordingsBrowser } from "./GameModeRecordingsBrowser";
@@ -280,9 +281,12 @@ export function GameModePage({ gameMode }: GameModePageProps) {
                 aria-labelledby={`${ANALYSIS_TABS_ID_BASE}-video-analysis-tab`}
                 className="flex h-full min-h-0 flex-col"
               >
-                <main className="min-h-0 flex-1 overflow-hidden">
-                  <VideoPlayer />
-                </main>
+                <div className="flex min-h-0 flex-1 overflow-hidden">
+                  <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                    <VideoPlayer />
+                  </main>
+                  <PlaybackEventList />
+                </div>
                 <GameEvents />
               </div>
             ) : activeTab === "metadata" ? (

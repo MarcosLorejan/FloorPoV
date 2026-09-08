@@ -56,9 +56,16 @@ export function VideoProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const seek = useCallback((time: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = time;
+    const videoElement = videoRef.current;
+    if (!videoElement) {
+      return;
     }
+
+    const mediaDuration = videoElement.duration;
+    const upperBound = Number.isFinite(mediaDuration) ? mediaDuration : Number.POSITIVE_INFINITY;
+    const nextTime = Number.isFinite(time) ? Math.min(upperBound, Math.max(0, time)) : 0;
+    videoElement.currentTime = nextTime;
+    setCurrentTime(nextTime);
   }, []);
 
   const updateTime = useCallback((time: number) => {
@@ -142,6 +149,26 @@ export function VideoProvider({ children }: { children: ReactNode }) {
     },
     [setVideoLoading]
   );
+
+  useEffect(() => {
+    if (!isPlaying) {
+      return;
+    }
+
+    let frameId = 0;
+    const syncPlaybackTime = () => {
+      const videoElement = videoRef.current;
+      if (videoElement) {
+        setCurrentTime(videoElement.currentTime);
+      }
+      frameId = window.requestAnimationFrame(syncPlaybackTime);
+    };
+
+    frameId = window.requestAnimationFrame(syncPlaybackTime);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [isPlaying]);
 
   useEffect(() => {
     return () => {

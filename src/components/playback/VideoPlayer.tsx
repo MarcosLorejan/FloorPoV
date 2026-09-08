@@ -21,6 +21,8 @@ import { EVENT_SEEK_OFFSET_SECONDS, isVideoSeekBarEvent, type GameEvent } from "
 import { formatTime } from "../../utils/format";
 
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+const FINE_SEEK_SECONDS = 1;
+const COARSE_SEEK_SECONDS = 5;
 
 export function VideoPlayer() {
   const {
@@ -59,6 +61,8 @@ export function VideoPlayer() {
   const [immersiveViewportSize, setImmersiveViewportSize] = useState({ width: 0, height: 0 });
   const [hoveredSeekBarEvent, setHoveredSeekBarEvent] = useState<GameEvent | null>(null);
   const [seekBarTooltipX, setSeekBarTooltipX] = useState(0);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [hoverPreview, setHoverPreview] = useState<{ time: number; x: number } | null>(null);
 
   const showVideo = Boolean(videoSrc) && !isRecording;
   const toggleImmersiveMode = () => {
@@ -309,11 +313,57 @@ export function VideoPlayer() {
     };
   }, [isImmersiveMode, showVideo]);
 
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!progressRef.current || duration === 0) return;
+  const timeFromClientX = (clientX: number) => {
+    if (!progressRef.current || duration <= 0) {
+      return 0;
+    }
+
     const rect = progressRef.current.getBoundingClientRect();
-    const clickPosition = (e.clientX - rect.left) / rect.width;
-    seek(clickPosition * duration);
+    if (rect.width <= 0) {
+      return 0;
+    }
+
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return ratio * duration;
+  };
+
+  const handleProgressPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (duration <= 0) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsScrubbing(true);
+    const nextTime = timeFromClientX(event.clientX);
+    setHoverPreview({ time: nextTime, x: event.clientX - event.currentTarget.getBoundingClientRect().left });
+    seek(nextTime);
+  };
+
+  const handleProgressPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (duration <= 0) {
+      return;
+    }
+
+    const barRect = event.currentTarget.getBoundingClientRect();
+    const nextTime = timeFromClientX(event.clientX);
+    setHoverPreview({ time: nextTime, x: event.clientX - barRect.left });
+
+    if (isScrubbing) {
+      seek(nextTime);
+    }
+  };
+
+  const handleProgressPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setIsScrubbing(false);
+  };
+
+  const handleProgressPointerLeave = () => {
+    if (!isScrubbing) {
+      setHoverPreview(null);
+    }
   };
 
   const handleSeekBarEventClick = (timestamp: number) => {
@@ -369,7 +419,7 @@ export function VideoPlayer() {
             controls={false}
             playsInline
             disablePictureInPicture
-            preload="metadata"
+            preload="auto"
             onLoadStart={() => {
               setVideoLoading(true);
             }}
@@ -518,21 +568,28 @@ export function VideoPlayer() {
 
             <div
               ref={progressRef}
-              className="group relative h-2 w-full cursor-pointer overflow-visible rounded-full border border-white/15 bg-neutral-700/80 md:min-w-0 md:flex-1"
-              onClick={handleProgressClick}
+              className="group relative h-3 w-full cursor-pointer overflow-visible rounded-full border border-white/15 bg-neutral-700/80 md:min-w-0 md:flex-1"
+              onPointerDown={handleProgressPointerDown}
+              onPointerMove={handleProgressPointerMove}
+              onPointerUp={handleProgressPointerUp}
+              onPointerCancel={handleProgressPointerUp}
+              onPointerLeave={handleProgressPointerLeave}
               onKeyDown={(event) => {
                 if (duration <= 0) {
                   return;
                 }
 
+                const seekStep = event.shiftKey ? COARSE_SEEK_SECONDS : FINE_SEEK_SECONDS;
+
                 if (event.key === "ArrowLeft") {
                   event.preventDefault();
-                  seek(Math.max(0, currentTime - 5));
+                  seek(Math.max(0, currentTime - seekStep));
+                  return;
                 }
 
                 if (event.key === "ArrowRight") {
                   event.preventDefault();
-                  seek(Math.min(duration, currentTime + 5));
+                  seek(Math.min(duration, currentTime + seekStep));
                   return;
                 }
 
@@ -571,6 +628,9 @@ export function VideoPlayer() {
                     type="button"
                     className="absolute top-1/2 z-10 -ml-2 -translate-y-1/2 rounded-sm p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
                     style={{ left: `${position}%` }}
+                    onPointerDown={(mouseEvent) => {
+                      mouseEvent.stopPropagation();
+                    }}
                     onClick={(mouseEvent) => {
                       mouseEvent.stopPropagation();
                       handleSeekBarEventClick(event.timestamp);
@@ -584,7 +644,18 @@ export function VideoPlayer() {
                 );
               })}
               <AnimatePresence>
-                {hoveredSeekBarEvent && <EventTooltip event={hoveredSeekBarEvent} x={seekBarTooltipX} />}
+                {hoveredSeekBarEvent ? (
+                  <EventTooltip event={hoveredSeekBarEvent} x={seekBarTooltipX} />
+                ) : (
+                  hoverPreview && (
+                    <div
+                      className="pointer-events-none absolute bottom-full mb-2 -translate-x-1/2 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 font-mono text-xs text-neutral-100"
+                      style={{ left: hoverPreview.x }}
+                    >
+                      {formatTime(hoverPreview.time)}
+                    </div>
+                  )
+                )}
               </AnimatePresence>
             </div>
 

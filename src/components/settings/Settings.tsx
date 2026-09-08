@@ -777,7 +777,7 @@ export function Settings() {
                   });
                 }}
                 label="Enable Auto Updates"
-                description="Check for beta updates on launch and install them automatically."
+                description="Check this fork's GitHub releases on launch. Off by default so the official FloorPoV updater cannot replace this build."
               />
             </div>
           </SettingsSection>

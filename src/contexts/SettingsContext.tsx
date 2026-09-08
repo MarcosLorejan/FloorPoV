@@ -12,6 +12,8 @@ interface SettingsContextType {
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
+const FORK_UPDATER_CUTOVER_KEY = "fork-updater-cutover";
+
 function getLegacyDefaultOutputFolderPath(defaultFolder: string): string | null {
   if (defaultFolder.endsWith('\\FloorPoV')) {
     return defaultFolder.slice(0, -'\\FloorPoV'.length) + '\\Floorpov';
@@ -58,6 +60,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
         const defaultFolder = await invoke<string>('get_default_output_folder');
         const legacyDefaultFolder = getLegacyDefaultOutputFolderPath(defaultFolder);
+        const hasCompletedUpdaterCutover =
+          (await store.get<boolean>(FORK_UPDATER_CUTOVER_KEY)) === true;
         let shouldPersistMergedSettings = false;
 
         if (!mergedSettings.outputFolder) {
@@ -73,8 +77,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           shouldPersistMergedSettings = true;
         }
 
+        if (!hasCompletedUpdaterCutover && mergedSettings.enableAutoUpdate) {
+          mergedSettings.enableAutoUpdate = false;
+          shouldPersistMergedSettings = true;
+        }
+
         if (shouldPersistMergedSettings) {
           await store.set('recording-settings', mergedSettings);
+        }
+
+        if (!hasCompletedUpdaterCutover) {
+          await store.set(FORK_UPDATER_CUTOVER_KEY, true);
+        }
+
+        if (shouldPersistMergedSettings || !hasCompletedUpdaterCutover) {
           await store.save();
         }
 
@@ -92,6 +108,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         const initialSettings = { ...DEFAULT_SETTINGS, outputFolder: defaultFolder };
         setSettings(initialSettings);
         await store.set('recording-settings', initialSettings);
+        await store.set(FORK_UPDATER_CUTOVER_KEY, true);
         await store.save();
         
         if (initialSettings.markerHotkey !== 'none') {

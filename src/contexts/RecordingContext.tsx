@@ -432,6 +432,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       settings.videoEncoderPreference,
       settings.enableRecordingDiagnostics,
       settings.enableSystemAudio,
+      settings.audioCaptureMode,
       settings.frameRate,
       settings.maxStorageGB,
       settings.outputFolder,

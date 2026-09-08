@@ -134,14 +134,21 @@ pub(crate) fn spawn_ffmpeg_recording_task(
             );
 
             if run_result.output_written {
-                if run_result.force_killed {
+                let playable = super::mp4::mp4_has_movie_header(&segment_output_path);
+                if run_result.force_killed && !playable {
                     tracing::warn!(
                         segment_path = %segment_output_path.display(),
                         wall_clock_secs = run_result.wall_clock_duration.as_secs_f32(),
-                        "FFmpeg was force-killed before clean finalization; segment discarded. \
-                         Consider increasing FFMPEG_STOP_TIMEOUT if this happens on normal stops."
+                        "FFmpeg was force-killed before a movie header was written; segment discarded"
                     );
                 } else {
+                    if run_result.force_killed {
+                        tracing::warn!(
+                            segment_path = %segment_output_path.display(),
+                            wall_clock_secs = run_result.wall_clock_duration.as_secs_f32(),
+                            "FFmpeg was force-killed, but the fragmented MP4 still has a movie header"
+                        );
+                    }
                     segment_paths.push(segment_output_path);
                     segment_durations.push(run_result.wall_clock_duration);
                 }
@@ -214,10 +221,16 @@ pub(crate) fn spawn_ffmpeg_recording_task(
                     .metadata()
                     .map(|metadata| metadata.len() > 0)
                     .unwrap_or(false)
+                && super::mp4::mp4_has_movie_header(output_file)
         };
 
         if finalized_successfully {
             emit_recording_finalized(&app_handle, &session_config.output_path);
+        } else if segment_workspace.is_none() {
+            tracing::warn!(
+                output_path = %session_config.output_path,
+                "Recording stop finished without a playable MP4 movie header"
+            );
         }
 
         emit_recording_warning_cleared(&app_handle);

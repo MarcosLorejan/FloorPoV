@@ -2,6 +2,7 @@ mod audio_pipeline;
 mod ffmpeg;
 pub(crate) mod metadata;
 mod model;
+mod mp4;
 mod segments;
 mod session;
 mod window_capture;

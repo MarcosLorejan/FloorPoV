@@ -123,7 +123,7 @@ fn finalize_with_exact_segments(
         .arg("-c")
         .arg("copy")
         .arg("-movflags")
-        .arg("+faststart")
+        .arg(super::mp4::RECORDING_MOVFLAGS)
         .arg(output_path)
         .status()
         .map_err(|error| format!("Failed to start FFmpeg concat process: {error}"))?;
@@ -137,6 +137,28 @@ fn finalize_with_exact_segments(
     Ok(())
 }
 
+fn finalize_and_verify(
+    ffmpeg_binary_path: &Path,
+    segment_workspace: &Path,
+    segment_paths: &[PathBuf],
+    segment_durations: &[Duration],
+    output_path: &str,
+) -> Result<(), String> {
+    finalize_with_exact_segments(
+        ffmpeg_binary_path,
+        segment_workspace,
+        segment_paths,
+        segment_durations,
+        output_path,
+    )?;
+
+    if super::mp4::mp4_has_movie_header(Path::new(output_path)) {
+        Ok(())
+    } else {
+        Err("Concatenated recording is missing a playable MP4 movie header".to_string())
+    }
+}
+
 fn collect_non_empty_segments(
     segment_paths: &[PathBuf],
     segment_durations: &[Duration],
@@ -148,6 +170,7 @@ fn collect_non_empty_segments(
             && segment_path
                 .metadata()
                 .is_ok_and(|metadata| metadata.len() > 0)
+            && super::mp4::mp4_has_movie_header(segment_path)
         {
             paths.push(segment_path.clone());
             if let Some(dur) = segment_durations.get(index) {
@@ -231,7 +254,7 @@ pub(crate) fn finalize_segmented_recording(
 
     // Fast path: try concat with all non-empty segments first.
     // Only run decodability probing if this fails.
-    if finalize_with_exact_segments(
+    if finalize_and_verify(
         ffmpeg_binary_path,
         segment_workspace,
         &non_empty_paths,
@@ -266,7 +289,7 @@ pub(crate) fn finalize_segmented_recording(
                 candidate_durations.remove(remove_index);
             }
 
-            match finalize_with_exact_segments(
+            match finalize_and_verify(
                 ffmpeg_binary_path,
                 segment_workspace,
                 &candidate_paths,
@@ -292,7 +315,7 @@ pub(crate) fn finalize_segmented_recording(
     for prefix_len in (1..valid_paths.len()).rev() {
         let prefix_paths = &valid_paths[..prefix_len];
         let prefix_durations = &valid_durations[..prefix_len.min(valid_durations.len())];
-        match finalize_with_exact_segments(
+        match finalize_and_verify(
             ffmpeg_binary_path,
             segment_workspace,
             prefix_paths,
@@ -320,7 +343,7 @@ pub(crate) fn finalize_segmented_recording(
         } else {
             &[]
         };
-        match finalize_with_exact_segments(
+        match finalize_and_verify(
             ffmpeg_binary_path,
             segment_workspace,
             suffix_paths,

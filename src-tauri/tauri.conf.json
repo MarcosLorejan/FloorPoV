@@ -13,7 +13,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU1QUI1NkQwMkQ0NDEzNzkKUldSNUUwUXQwRmFyVmFYTHhKVGFyZk1tTm5RUitqWS9OOHFmT1lmN3JXNUQxUDZXS29WQ3dNWmkK",
       "endpoints": [
-        "https://github.com/RobDeFlop/Floorpov/releases/latest/download/latest.json"
+        "https://github.com/MarcosLorejan/FloorPoV/releases/latest/download/latest.json"
       ]
     }
   },

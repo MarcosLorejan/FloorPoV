@@ -40,7 +40,7 @@ export const DEFAULT_SETTINGS: RecordingSettings = {
   enableRecordingDiagnostics: false,
   enableAutoRecording: false,
   minAutoRaidRecordingSeconds: 25,
-  enableAutoUpdate: true,
+  enableAutoUpdate: false,
   startMinimized: false,
   markerHotkey: 'F9',
 };

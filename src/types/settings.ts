@@ -3,6 +3,7 @@ export type VideoEncoderPreference = 'auto' | 'h264_nvenc' | 'h264_qsv' | 'h264_
 export type FrameRate = 30 | 60;
 export type MarkerHotkey = 'F9' | 'F10' | 'F11' | 'F12' | 'none';
 export type CaptureSource = 'monitor' | 'window';
+export type AudioCaptureMode = 'wow' | 'desktop';
 
 export interface RecordingSettings {
   videoQuality: VideoQuality;
@@ -15,6 +16,7 @@ export interface RecordingSettings {
   wowFolder: string;
   maxStorageGB: number;
   enableSystemAudio: boolean;
+  audioCaptureMode: AudioCaptureMode;
   enableRecordingDiagnostics: boolean;
   enableAutoRecording: boolean;
   minAutoRaidRecordingSeconds: number;
@@ -34,6 +36,7 @@ export const DEFAULT_SETTINGS: RecordingSettings = {
   wowFolder: '',
   maxStorageGB: 30,
   enableSystemAudio: false,
+  audioCaptureMode: 'wow',
   enableRecordingDiagnostics: false,
   enableAutoRecording: false,
   minAutoRaidRecordingSeconds: 25,

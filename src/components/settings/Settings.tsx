@@ -20,6 +20,7 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { FormField } from "../ui/FormField";
 import {
+  AudioCaptureMode,
   CaptureSource,
   FrameRate,
   HOTKEY_OPTIONS,
@@ -60,6 +61,11 @@ const CAPTURE_SOURCE_OPTIONS: SettingsSelectOption[] = [
   { value: "window", label: "Specific Window" },
 ];
 
+const AUDIO_CAPTURE_MODE_OPTIONS: SettingsSelectOption[] = [
+  { value: "wow", label: "WoW only" },
+  { value: "desktop", label: "Entire desktop" },
+];
+
 const VIDEO_ENCODER_PREFERENCE_VALUES: VideoEncoderPreference[] = [
   "auto",
   "h264_nvenc",
@@ -79,6 +85,7 @@ const FIELD_IDS = {
   wowFolder: "settings-wow-folder",
   markerHotkey: "settings-marker-hotkey",
   enableSystemAudio: "settings-enable-system-audio",
+  audioCaptureMode: "settings-audio-capture-mode",
   enableRecordingDiagnostics: "settings-enable-recording-diagnostics",
   enableAutoRecording: "settings-enable-auto-recording",
   minAutoRaidRecordingSeconds: "settings-min-auto-raid-recording-seconds",
@@ -110,6 +117,10 @@ function isVideoEncoderPreference(value: string): value is VideoEncoderPreferenc
 
 function isMarkerHotkey(value: string): value is MarkerHotkey {
   return HOTKEY_OPTIONS.some((option) => option.value === value);
+}
+
+function isAudioCaptureMode(value: string): value is AudioCaptureMode {
+  return value === "wow" || value === "desktop";
 }
 
 export function Settings() {
@@ -565,7 +576,10 @@ export function Settings() {
 
           <SettingsSection title="Audio" icon={<Volume2 className="h-4 w-4" />}>
             <div className="space-y-4">
-              <p className="text-sm text-neutral-400">Include game and desktop audio in your recordings.</p>
+              <p className="text-sm text-neutral-400">
+                Include game audio in your recordings. WoW only uses Windows process loopback so
+                Discord and the browser stay out of the VOD.
+              </p>
 
               <SettingsToggleField
                 id={FIELD_IDS.enableSystemAudio}
@@ -576,8 +590,26 @@ export function Settings() {
                     enableSystemAudio: checked,
                   });
                 }}
-                label="Enable System Audio"
+                label="Enable Audio Capture"
               />
+
+              {formData.enableSystemAudio && (
+                <div>
+                  <label htmlFor={FIELD_IDS.audioCaptureMode} className="mb-1 block text-sm text-neutral-200">
+                    Capture source
+                  </label>
+                  <SettingsSelect
+                    id={FIELD_IDS.audioCaptureMode}
+                    value={formData.audioCaptureMode}
+                    options={AUDIO_CAPTURE_MODE_OPTIONS}
+                    onChange={(nextValue) => {
+                      if (isAudioCaptureMode(nextValue)) {
+                        setFormData({ ...formData, audioCaptureMode: nextValue });
+                      }
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </SettingsSection>
 

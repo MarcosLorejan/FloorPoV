@@ -127,7 +127,9 @@ pub async fn start_recording(
     let resolved_capture_target = capture_input.target_label();
 
     if recording_settings.enable_system_audio {
-        audio_pipeline::validate_system_audio_capture_available()?;
+        audio_pipeline::validate_system_audio_capture_available(
+            &recording_settings.audio_capture_mode,
+        )?;
     }
 
     tracing::info!(
@@ -139,6 +141,7 @@ pub async fn start_recording(
         capture_source = %recording_settings.capture_source,
         resolved_capture_target = %resolved_capture_target,
         include_system_audio = recording_settings.enable_system_audio,
+        audio_capture_mode = %recording_settings.audio_capture_mode,
         enable_diagnostics = recording_settings.enable_recording_diagnostics,
         effective_bitrate_bps = recording_settings.bitrate,
         "Using recording settings"
@@ -171,6 +174,7 @@ pub async fn start_recording(
             bitrate: recording_settings.bitrate,
             capture_input,
             include_system_audio: recording_settings.enable_system_audio,
+            audio_capture_mode: recording_settings.audio_capture_mode.clone(),
             enable_diagnostics: recording_settings.enable_recording_diagnostics,
         },
         stop_rx,

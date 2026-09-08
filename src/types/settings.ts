@@ -19,6 +19,7 @@ export interface RecordingSettings {
   enableAutoRecording: boolean;
   minAutoRaidRecordingSeconds: number;
   enableAutoUpdate: boolean;
+  startMinimized: boolean;
   markerHotkey: MarkerHotkey;
 }
 
@@ -37,6 +38,7 @@ export const DEFAULT_SETTINGS: RecordingSettings = {
   enableAutoRecording: false,
   minAutoRaidRecordingSeconds: 25,
   enableAutoUpdate: true,
+  startMinimized: false,
   markerHotkey: 'F9',
 };
 

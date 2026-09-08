@@ -2,8 +2,10 @@ mod combat_log;
 mod hotkey;
 mod recording;
 mod settings;
+mod tray;
 mod wcl_upload;
 
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -37,12 +39,29 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(recording_state)
         .manage(wcl_upload::WclAuthService::new())
+        .manage(tray::AppExitState::new())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                tray::hide_main_window(window.app_handle());
+            }
+        })
         .setup(|app| {
             let main_window = app
                 .get_webview_window("main")
                 .ok_or_else(|| "Main application window was not created".to_string())?;
             main_window.set_icon(tauri::include_image!("./icons/128x128.png"))?;
             main_window.set_skip_taskbar(false)?;
+
+            if let Err(error) = tray::install_tray(app) {
+                tracing::error!("Failed to install the system tray: {error}");
+            }
+
+            if tray::should_start_minimized(app.handle()) {
+                tray::hide_main_window(app.handle());
+            } else {
+                tray::show_main_window(app.handle());
+            }
 
             let output_folder = match settings::get_default_output_folder() {
                 Ok(path) => path,
@@ -122,7 +141,19 @@ pub fn run() {
             wcl_upload::get_wcl_live_upload_state,
             hotkey::register_marker_hotkey,
             hotkey::unregister_marker_hotkey,
+            tray::hide_to_tray,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                if !app_handle
+                    .state::<tray::AppExitState>()
+                    .allow_exit
+                    .load(Ordering::Relaxed)
+                {
+                    api.prevent_exit();
+                }
+            }
+        });
 }

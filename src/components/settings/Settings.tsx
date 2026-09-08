@@ -83,6 +83,7 @@ const FIELD_IDS = {
   enableAutoRecording: "settings-enable-auto-recording",
   minAutoRaidRecordingSeconds: "settings-min-auto-raid-recording-seconds",
   enableAutoUpdate: "settings-enable-auto-update",
+  startMinimized: "settings-start-minimized",
 };
 
 
@@ -712,6 +713,23 @@ export function Settings() {
                   Press this key during recording to add a marker. If it conflicts, choose another key.
                 </p>
               </div>
+            </div>
+          </SettingsSection>
+
+          <SettingsSection title="App" icon={<AppWindow className="h-4 w-4" />}>
+            <div className="space-y-4">
+              <SettingsToggleField
+                id={FIELD_IDS.startMinimized}
+                checked={formData.startMinimized}
+                onChange={(checked) => {
+                  setFormData({
+                    ...formData,
+                    startMinimized: checked,
+                  });
+                }}
+                label="Start Minimized to Tray"
+                description="Launch in the tray so auto-record can arm without opening the window. The X button always hides to the tray; quit from the tray icon."
+              />
             </div>
           </SettingsSection>
 

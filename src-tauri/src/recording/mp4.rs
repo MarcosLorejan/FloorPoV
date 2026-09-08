@@ -19,6 +19,7 @@ pub(crate) const RECORDING_MOVFLAGS: &str = "+frag_keyframe+empty_moov+default_b
 pub(crate) struct Mp4Probe {
     pub(crate) has_moov: bool,
     pub(crate) has_moof: bool,
+    pub(crate) has_movie_extends: bool,
 }
 
 impl Mp4Probe {
@@ -27,9 +28,9 @@ impl Mp4Probe {
         self.has_moof
     }
 
-    /// Regular MP4 with a duration-bearing `moov` (no live fragments).
+    /// Regular MP4 with a duration-bearing `moov` (no live fragments or `mvex`).
     pub(crate) fn is_library_ready(self) -> bool {
-        self.has_moov && !self.has_moof
+        self.has_moov && !self.has_moof && !self.has_movie_extends
     }
 
     pub(crate) fn is_usable_segment(self) -> bool {
@@ -90,11 +91,13 @@ fn probe_mp4_reader<R: Read + Seek>(mut reader: R) -> Mp4Probe {
 
         if box_type == b"moov" {
             probe.has_moov = true;
+            probe.has_movie_extends =
+                box_contains_child(&mut reader, offset, box_size, header_len, b"mvex");
         } else if box_type == b"moof" {
             probe.has_moof = true;
         }
 
-        if probe.has_moov && probe.has_moof {
+        if probe.is_library_ready() || (probe.has_moov && probe.has_moof) {
             break;
         }
 
@@ -106,6 +109,57 @@ fn probe_mp4_reader<R: Read + Seek>(mut reader: R) -> Mp4Probe {
     }
 
     probe
+}
+
+fn box_contains_child<R: Read + Seek>(
+    reader: &mut R,
+    box_offset: u64,
+    box_size: u64,
+    header_len: u64,
+    child_type: &[u8; 4],
+) -> bool {
+    let end = box_offset.saturating_add(box_size);
+    let mut offset = box_offset.saturating_add(header_len);
+
+    while offset + 8 <= end {
+        if reader.seek(SeekFrom::Start(offset)).is_err() {
+            return false;
+        }
+
+        let mut header = [0_u8; 8];
+        if reader.read_exact(&mut header).is_err() {
+            return false;
+        }
+
+        let mut child_size =
+            u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as u64;
+        if child_size == 1 {
+            let mut large_size = [0_u8; 8];
+            if reader.read_exact(&mut large_size).is_err() {
+                return false;
+            }
+            child_size = u64::from_be_bytes(large_size);
+            if child_size < 16 {
+                return false;
+            }
+        } else if child_size == 0 {
+            child_size = end.saturating_sub(offset);
+        } else if child_size < 8 {
+            return false;
+        }
+
+        if &header[4..8] == child_type {
+            return true;
+        }
+
+        let next_offset = offset.saturating_add(child_size);
+        if next_offset <= offset {
+            return false;
+        }
+        offset = next_offset;
+    }
+
+    false
 }
 
 #[cfg(test)]
@@ -131,10 +185,13 @@ mod tests {
 
     #[test]
     fn empty_moov_without_moof_is_not_library_ready() {
+        let mut moov_payload = box_bytes(b"mvhd", &[]);
+        moov_payload.extend_from_slice(&box_bytes(b"mvex", &[]));
         let mut bytes = box_bytes(b"ftyp", b"isom");
-        bytes.extend_from_slice(&box_bytes(b"moov", b""));
+        bytes.extend_from_slice(&box_bytes(b"moov", &moov_payload));
         let probe = probe_mp4_reader(Cursor::new(bytes));
         assert!(probe.has_moov);
+        assert!(probe.has_movie_extends);
         assert!(!probe.has_media_fragment());
         assert!(!probe.is_library_ready());
         assert!(!probe.is_usable_segment());
@@ -163,6 +220,7 @@ mod tests {
             Mp4Probe {
                 has_moov: true,
                 has_moof: false,
+                has_movie_extends: false,
             }
         );
         assert!(probe.is_library_ready());

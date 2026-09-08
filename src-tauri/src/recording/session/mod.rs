@@ -16,7 +16,7 @@ use super::model::{
 };
 use super::segments::{
     build_segment_output_path, cleanup_segment_workspace, create_segment_workspace,
-    finalize_segmented_recording,
+    finalize_segmented_recording, remux_to_library_mp4,
 };
 use super::window_capture::{
     evaluate_window_capture_availability, resolve_capture_dimensions,
@@ -134,19 +134,19 @@ pub(crate) fn spawn_ffmpeg_recording_task(
             );
 
             if run_result.output_written {
-                let playable = super::mp4::mp4_has_movie_header(&segment_output_path);
-                if run_result.force_killed && !playable {
+                let probe = super::mp4::probe_mp4(&segment_output_path);
+                if run_result.force_killed && !probe.has_media_fragment() {
                     tracing::warn!(
                         segment_path = %segment_output_path.display(),
                         wall_clock_secs = run_result.wall_clock_duration.as_secs_f32(),
-                        "FFmpeg was force-killed before a movie header was written; segment discarded"
+                        "FFmpeg was force-killed before a media fragment was written; segment discarded"
                     );
                 } else {
                     if run_result.force_killed {
                         tracing::warn!(
                             segment_path = %segment_output_path.display(),
                             wall_clock_secs = run_result.wall_clock_duration.as_secs_f32(),
-                            "FFmpeg was force-killed, but the fragmented MP4 still has a movie header"
+                            "FFmpeg was force-killed, but the fragmented MP4 still has media"
                         );
                     }
                     segment_paths.push(segment_output_path);
@@ -215,22 +215,23 @@ pub(crate) fn spawn_ffmpeg_recording_task(
             cleanup_segment_workspace(workspace);
             was_successful
         } else {
-            let output_file = Path::new(&session_config.output_path);
-            output_file.exists()
-                && output_file
-                    .metadata()
-                    .map(|metadata| metadata.len() > 0)
-                    .unwrap_or(false)
-                && super::mp4::mp4_has_movie_header(output_file)
+            match remux_to_library_mp4(
+                &session_config.ffmpeg_binary_path,
+                Path::new(&session_config.output_path),
+            ) {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!(
+                        output_path = %session_config.output_path,
+                        "Recording stop finished without a duration-bearing library MP4: {error}"
+                    );
+                    false
+                }
+            }
         };
 
         if finalized_successfully {
             emit_recording_finalized(&app_handle, &session_config.output_path);
-        } else if segment_workspace.is_none() {
-            tracing::warn!(
-                output_path = %session_config.output_path,
-                "Recording stop finished without a playable MP4 movie header"
-            );
         }
 
         emit_recording_warning_cleared(&app_handle);

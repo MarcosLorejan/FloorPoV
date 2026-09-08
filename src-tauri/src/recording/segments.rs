@@ -122,8 +122,6 @@ fn finalize_with_exact_segments(
         .arg(&concat_path)
         .arg("-c")
         .arg("copy")
-        .arg("-movflags")
-        .arg(super::mp4::RECORDING_MOVFLAGS)
         .arg(output_path)
         .status()
         .map_err(|error| format!("Failed to start FFmpeg concat process: {error}"))?;
@@ -151,11 +149,86 @@ fn finalize_and_verify(
         segment_durations,
         output_path,
     )?;
+    remux_to_library_mp4(ffmpeg_binary_path, Path::new(output_path))
+}
 
-    if super::mp4::mp4_has_movie_header(Path::new(output_path)) {
-        Ok(())
-    } else {
-        Err("Concatenated recording is missing a playable MP4 movie header".to_string())
+pub(crate) fn remux_to_library_mp4(
+    ffmpeg_binary_path: &Path,
+    output_path: &Path,
+) -> Result<(), String> {
+    let probe = super::mp4::probe_mp4(output_path);
+    if probe.is_library_ready() {
+        return Ok(());
+    }
+    if !probe.has_media_fragment() {
+        return Err(
+            "Recording is missing media fragments and a duration-bearing MP4 header".to_string(),
+        );
+    }
+
+    let file_stem = output_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("recording");
+    let temp_path = output_path.with_file_name(format!(".{file_stem}.library.mp4"));
+
+    if temp_path.exists() {
+        fs::remove_file(&temp_path).map_err(|error| {
+            format!(
+                "Failed to replace leftover remux file {}: {error}",
+                temp_path.display()
+            )
+        })?;
+    }
+
+    let mut command = Command::new(ffmpeg_binary_path);
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let status = command
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-y")
+        .arg("-i")
+        .arg(output_path)
+        .arg("-c")
+        .arg("copy")
+        .arg(&temp_path)
+        .status()
+        .map_err(|error| format!("Failed to start FFmpeg remux process: {error}"))?;
+
+    if !status.success() {
+        remove_temp_remux_file(&temp_path);
+        return Err(format!("FFmpeg remux process failed with status: {status}"));
+    }
+
+    let remuxed = super::mp4::probe_mp4(&temp_path);
+    if !remuxed.is_library_ready() {
+        remove_temp_remux_file(&temp_path);
+        return Err("Remuxed recording is missing a duration-bearing MP4 movie header".to_string());
+    }
+
+    if output_path.exists() {
+        fs::remove_file(output_path).map_err(|error| {
+            remove_temp_remux_file(&temp_path);
+            format!("Failed to replace live recording with remuxed library file: {error}")
+        })?;
+    }
+
+    match fs::rename(&temp_path, output_path) {
+        Ok(()) => Ok(()),
+        Err(rename_error) => {
+            fs::copy(&temp_path, output_path).map_err(|copy_error| {
+                remove_temp_remux_file(&temp_path);
+                format!(
+                    "Failed to move remuxed library file into place. rename error: {rename_error}; copy error: {copy_error}"
+                )
+            })?;
+            fs::remove_file(&temp_path).map_err(|remove_error| {
+                format!("Failed to remove remux temp file after fallback copy: {remove_error}")
+            })?;
+            Ok(())
+        }
     }
 }
 
@@ -170,7 +243,7 @@ fn collect_non_empty_segments(
             && segment_path
                 .metadata()
                 .is_ok_and(|metadata| metadata.len() > 0)
-            && super::mp4::mp4_has_movie_header(segment_path)
+            && super::mp4::probe_mp4(segment_path).is_usable_segment()
         {
             paths.push(segment_path.clone());
             if let Some(dur) = segment_durations.get(index) {
@@ -368,6 +441,15 @@ pub(crate) fn finalize_segmented_recording(
     Err(format!(
         "Failed to finalize recording after trying full/middle-drop/prefix/suffix concat strategies. Last error: {last_error}"
     ))
+}
+
+fn remove_temp_remux_file(temp_path: &Path) {
+    if let Err(error) = fs::remove_file(temp_path) {
+        tracing::warn!(
+            temp_path = %temp_path.display(),
+            "Failed to remove remux temp file: {error}"
+        );
+    }
 }
 
 pub(crate) fn cleanup_segment_workspace(segment_workspace: &Path) {

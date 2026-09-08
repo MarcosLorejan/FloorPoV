@@ -692,7 +692,7 @@ pub(super) fn run_ffmpeg_recording_segment(
         .arg("-max_muxing_queue_size")
         .arg("2048")
         .arg("-movflags")
-        .arg("+faststart")
+        .arg(super::super::mp4::RECORDING_MOVFLAGS)
         .arg(&output_path_string)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())

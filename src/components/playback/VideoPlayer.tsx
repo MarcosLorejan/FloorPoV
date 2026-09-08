@@ -14,7 +14,7 @@ import {
 import { useVideo } from "../../contexts/VideoContext";
 import { useRecording } from "../../contexts/RecordingContext";
 import { useMarker } from "../../contexts/MarkerContext";
-import { EventMarker, EventTypeFilter } from "../events/EventMarker";
+import { EventMarker } from "../events/EventMarker";
 import { EventTooltip } from "../events/EventTooltip";
 import { ControlIconButton } from "./ControlIconButton";
 import { EVENT_SEEK_OFFSET_SECONDS, isVideoSeekBarEvent, type GameEvent } from "../../types/events";
@@ -45,7 +45,7 @@ export function VideoPlayer() {
   } = useVideo();
 
   const { isRecording, recordingWarning } = useRecording();
-  const { events, filteredEvents } = useMarker();
+  const { filteredEvents } = useMarker();
 
   const inlineSurfaceHostRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
@@ -97,7 +97,6 @@ export function VideoPlayer() {
 
     return filteredEvents.filter(isVideoSeekBarEvent);
   }, [duration, filteredEvents]);
-  const hasSeekBarEventTypes = events.some(isVideoSeekBarEvent);
   const volumeProgress = Math.max(0, Math.min(volume * 100, 100));
   const immersiveVideoStyle =
     isImmersiveMode &&
@@ -498,11 +497,6 @@ export function VideoPlayer() {
           }
           style={immersiveControlsStyle}
         >
-          {hasSeekBarEventTypes && (
-            <div className="mb-2">
-              <EventTypeFilter types={["death", "interrupt", "manual"]} />
-            </div>
-          )}
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-3">
             <div className="flex items-center gap-2 sm:gap-3 md:shrink-0">
               <ControlIconButton

@@ -5,8 +5,8 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { TitleBar } from "./TitleBar";
 import { Sidebar } from "./Sidebar";
 import { GameModePage } from "../gamemodes/GameModePage";
+import { PlaybackEventList } from "../events/PlaybackEventList";
 import { VideoPlayer } from "../playback/VideoPlayer";
-
 import { RecordingsList } from "../playback/RecordingsList";
 import { Settings } from "../settings/Settings";
 import { CombatLogDebug } from "../debug/CombatLogDebug";
@@ -236,12 +236,13 @@ function LayoutContent() {
               transition={smoothTransition}
             >
               <section
-                className="flex w-full shrink-0 flex-col overflow-hidden"
+                className="flex w-full shrink-0 overflow-hidden"
                 style={{ height: mediaSectionHeight }}
               >
-                <main className="flex-1 min-h-0 overflow-hidden flex items-center justify-center bg-neutral-950/70">
+                <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-neutral-950/70">
                   <VideoPlayer />
                 </main>
+                <PlaybackEventList />
               </section>
               <div
                 className={`flex h-3 w-full cursor-row-resize items-center justify-center border-y border-white/10 bg-(--surface-2) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 ${

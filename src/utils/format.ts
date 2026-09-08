@@ -5,6 +5,21 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+export function formatUnitName(name?: string): string {
+  if (!name) {
+    return "Unknown";
+  }
+
+  const trimmedName = name.trim();
+  if (!trimmedName) {
+    return "Unknown";
+  }
+
+  const [baseName] = trimmedName.split("-");
+  const normalizedBaseName = (baseName ?? "").trim();
+  return normalizedBaseName || "Unknown";
+}
+
 export function formatTime(seconds: number): string {
   if (!seconds || isNaN(seconds)) return "0:00";
   const mins = Math.floor(seconds / 60);

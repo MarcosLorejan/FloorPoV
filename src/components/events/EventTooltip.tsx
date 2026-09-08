@@ -7,21 +7,34 @@ interface EventTooltipProps {
   x: number;
 }
 
+const EVENT_LABELS: Record<GameEvent["type"], string> = {
+  death: "Death",
+  manual: "Manual Marker",
+  interrupt: "Interrupt",
+  kill: "Kill",
+};
+
+function getEventDescription(event: GameEvent): string {
+  if (event.type === "death") {
+    return `${event.target ?? "Unknown"} died`;
+  }
+
+  if (event.type === "manual") {
+    return "User marked this moment";
+  }
+
+  if (event.type === "interrupt") {
+    return `${event.source ?? "Unknown"} interrupted ${event.target ?? "Unknown"}`;
+  }
+
+  return `${event.source ?? "Unknown"} killed ${event.target ?? "Unknown"}`;
+}
+
 export function EventTooltip({ event, x }: EventTooltipProps) {
-  const label =
-    event.type === "death" ? "Death" :
-    event.type === "manual" ? "Manual Marker" :
-    "Kill";
-
-  const description =
-    event.type === "death" ? `${event.target ?? "Unknown"} died` :
-    event.type === "manual" ? "User marked this moment" :
-    `${event.source ?? "Unknown"} killed ${event.target ?? "Unknown"}`;
-
   return (
     <AnimatedTooltip x={x}>
-      <div className="font-medium">{label}</div>
-      <div className="text-neutral-400">{description}</div>
+      <div className="font-medium">{EVENT_LABELS[event.type]}</div>
+      <div className="text-neutral-400">{getEventDescription(event)}</div>
       <div className="text-neutral-500">{formatTime(event.timestamp)}</div>
     </AnimatedTooltip>
   );

@@ -1,15 +1,24 @@
 import { createContext, ReactNode, useContext, useState, useCallback, useMemo } from "react";
-import { GameEvent, isNpcKind, RecordingEncounterMetadata } from "../types/events";
+import { GameEvent, RecordingEncounterMetadata, shouldShowGameEvent } from "../types/events";
+
+const DEFAULT_EVENT_TYPE_VISIBILITY: Record<GameEvent["type"], boolean> = {
+  kill: true,
+  death: true,
+  manual: true,
+  interrupt: true,
+};
 
 interface MarkerContextType {
   events: GameEvent[];
   filteredEvents: GameEvent[];
   encounters: RecordingEncounterMetadata[];
   hideNpcEvents: boolean;
+  eventTypeVisibility: Record<GameEvent["type"], boolean>;
   addEvent: (event: GameEvent) => void;
   setEvents: (events: GameEvent[]) => void;
   setEncounters: (encounters: RecordingEncounterMetadata[]) => void;
   setHideNpcEvents: (hide: boolean) => void;
+  toggleEventTypeVisibility: (type: GameEvent["type"]) => void;
   clearEvents: () => void;
 }
 
@@ -48,11 +57,18 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [encounters, setEncounters] = useState<RecordingEncounterMetadata[]>([]);
   const [hideNpcEvents, setHideNpcEvents] = useState(true);
+  const [eventTypeVisibility, setEventTypeVisibility] = useState(DEFAULT_EVENT_TYPE_VISIBILITY);
 
   const filteredEvents = useMemo(() => {
-    if (!hideNpcEvents) return events;
-    return events.filter((event) => !isNpcKind(event.targetKind, event.target));
-  }, [events, hideNpcEvents]);
+    return events.filter((event) => shouldShowGameEvent(event, hideNpcEvents, eventTypeVisibility));
+  }, [events, hideNpcEvents, eventTypeVisibility]);
+
+  const toggleEventTypeVisibility = useCallback((type: GameEvent["type"]) => {
+    setEventTypeVisibility((currentVisibility) => ({
+      ...currentVisibility,
+      [type]: !currentVisibility[type],
+    }));
+  }, []);
 
   const addEvent = useCallback((event: GameEvent) => {
     setEvents((previousEvents) => insertEventByTimestamp(previousEvents, event));
@@ -73,10 +89,12 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
         filteredEvents,
         encounters,
         hideNpcEvents,
+        eventTypeVisibility,
         addEvent,
         setEvents: replaceEvents,
         setEncounters,
         setHideNpcEvents,
+        toggleEventTypeVisibility,
         clearEvents,
       }}
     >

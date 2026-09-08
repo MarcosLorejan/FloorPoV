@@ -1,7 +1,7 @@
 export interface GameEvent {
   id: string;
   timestamp: number;
-  type: "kill" | "death" | "manual";
+  type: "kill" | "death" | "manual" | "interrupt";
   source?: string;
   target?: string;
   targetKind?: string;
@@ -94,7 +94,12 @@ export interface ParseCombatLogDebugResult {
 
 export const EVENT_SEEK_OFFSET_SECONDS = 5;
 
-const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set(["PARTY_KILL", "UNIT_DIED", "MANUAL_MARKER"]);
+const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
+  "PARTY_KILL",
+  "UNIT_DIED",
+  "MANUAL_MARKER",
+  "SPELL_INTERRUPT",
+]);
 
 const NPC_KINDS = new Set(["NPC", "PET", "GUARDIAN", "UNKNOWN"]);
 const PLAYER_KINDS = new Set(["PLAYER"]);
@@ -126,6 +131,10 @@ function mapEventTypeToGameEventType(eventType: string): GameEvent["type"] {
 
   if (eventType === "UNIT_DIED") {
     return "death";
+  }
+
+  if (eventType === "SPELL_INTERRUPT") {
+    return "interrupt";
   }
 
   return "manual";
@@ -161,7 +170,28 @@ export function convertRecordingMetadataToGameEvents(
 }
 
 export function isVideoSeekBarEvent(event: GameEvent): boolean {
-  return event.type === "death" || event.type === "manual";
+  return event.type === "death" || event.type === "manual" || event.type === "interrupt";
+}
+
+export function shouldShowGameEvent(
+  event: GameEvent,
+  hideNpcEvents: boolean,
+  eventTypeVisibility: Record<GameEvent["type"], boolean>,
+): boolean {
+  if (!eventTypeVisibility[event.type]) {
+    return false;
+  }
+
+  // Interrupts target NPCs by design, so the NPC hide toggle would wipe kicks.
+  if (event.type === "interrupt") {
+    return true;
+  }
+
+  if (!hideNpcEvents) {
+    return true;
+  }
+
+  return !isNpcKind(event.targetKind, event.target);
 }
 
 export function convertCombatEvent(combatEvent: CombatEvent): GameEvent {

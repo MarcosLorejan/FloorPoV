@@ -212,7 +212,7 @@ struct AudioPipelineHandles {
     stats: Arc<AudioPipelineStats>,
 }
 
-fn setup_audio_pipeline(listener: TcpListener) -> AudioPipelineHandles {
+fn setup_audio_pipeline(listener: TcpListener, audio_capture_mode: String) -> AudioPipelineHandles {
     let (audio_tx, audio_rx) = std_mpsc::sync_channel::<Vec<u8>>(SYSTEM_AUDIO_QUEUE_CAPACITY);
     let (capture_stop_tx, capture_stop_rx) = std_mpsc::channel::<()>();
     let (writer_stop_tx, writer_stop_rx) = std_mpsc::channel::<()>();
@@ -252,8 +252,12 @@ fn setup_audio_pipeline(listener: TcpListener) -> AudioPipelineHandles {
 
     let capture_stats = Arc::clone(&stats);
     let capture_thread = thread::spawn(move || {
-        let capture_result =
-            run_system_audio_capture_to_queue(audio_tx, capture_stop_rx, capture_stats);
+        let capture_result = run_system_audio_capture_to_queue(
+            audio_tx,
+            capture_stop_rx,
+            capture_stats,
+            audio_capture_mode,
+        );
         tracing::info!("System audio capture thread exited");
         capture_result
     });
@@ -575,6 +579,7 @@ pub(super) fn run_ffmpeg_recording_segment(
         output_frame_rate = config.output_frame_rate,
         bitrate = config.bitrate,
         include_system_audio = config.include_system_audio,
+        audio_capture_mode = config.audio_capture_mode,
         enable_diagnostics = config.enable_diagnostics,
         video_encoder = config.video_encoder,
         "Starting FFmpeg recording segment"
@@ -709,7 +714,10 @@ pub(super) fn run_ffmpeg_recording_segment(
     let (stderr_hints, stderr_thread) = spawn_stderr_reader(&mut child, config.enable_diagnostics);
 
     let audio_handles = if let Some(setup) = audio_setup {
-        Some(setup_audio_pipeline(setup.listener))
+        Some(setup_audio_pipeline(
+            setup.listener,
+            config.audio_capture_mode.to_string(),
+        ))
     } else {
         None
     };

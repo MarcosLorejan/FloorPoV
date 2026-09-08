@@ -93,6 +93,7 @@ pub(crate) fn spawn_ffmpeg_recording_task(
             capture_source = runtime_capture_label(runtime_capture_mode),
             capture_target = %capture_target,
             include_system_audio = session_config.include_system_audio,
+            audio_capture_mode = %session_config.audio_capture_mode,
             enable_diagnostics = session_config.enable_diagnostics,
             video_encoder,
             "Starting FFmpeg recording"
@@ -119,6 +120,7 @@ pub(crate) fn spawn_ffmpeg_recording_task(
                 output_frame_rate: session_config.output_frame_rate,
                 bitrate: session_config.bitrate,
                 include_system_audio: session_config.include_system_audio,
+                audio_capture_mode: &session_config.audio_capture_mode,
                 enable_diagnostics: session_config.enable_diagnostics,
                 video_encoder: &video_encoder,
                 encoder_preset: encoder_preset.as_deref(),

@@ -7,6 +7,10 @@ fn default_capture_source() -> String {
     "monitor".to_string()
 }
 
+fn default_audio_capture_mode() -> String {
+    "wow".to_string()
+}
+
 fn default_video_encoder_preference() -> String {
     "auto".to_string()
 }
@@ -25,6 +29,8 @@ pub struct RecordingSettings {
     #[serde(default)]
     pub capture_window_title: Option<String>,
     pub enable_system_audio: bool,
+    #[serde(default = "default_audio_capture_mode")]
+    pub audio_capture_mode: String,
     pub enable_recording_diagnostics: bool,
 }
 

@@ -83,6 +83,38 @@ fn captures_mythic_plus_key_level_from_challenge_start() {
 }
 
 #[test]
+fn captures_dungeon_name_and_key_from_challenge_start() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let challenge_start_line = build_line(
+        "CHALLENGE_MODE_START",
+        &["\"Voidscar Arena\"", "2805", "557", "14"],
+    );
+    accumulator.consume_combat_log_line(&challenge_start_line, 0.25);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.zone_name.as_deref(), Some("Voidscar Arena"));
+    assert_eq!(snapshot.key_level, Some(14));
+}
+
+#[test]
+fn seeds_dungeon_name_from_challenge_start_before_recording() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+
+    let challenge_start_line = build_line(
+        "CHALLENGE_MODE_START",
+        &["\"Voidscar Arena\"", "2805", "557", "14"],
+    );
+    accumulator.consume_combat_log_line(&challenge_start_line, 0.0);
+    accumulator.begin_recording_session(0.25);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.zone_name.as_deref(), Some("Voidscar Arena"));
+    assert_eq!(snapshot.key_level, Some(14));
+}
+
+#[test]
 fn captures_player_overview_from_combatant_info() {
     let mut accumulator = RecordingMetadataAccumulator::default();
 

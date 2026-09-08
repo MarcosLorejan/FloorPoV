@@ -55,6 +55,13 @@ impl RecordingMetadataAccumulator {
 
         let parsed_event = parse_important_combat_event(line, &mut self.context)?;
 
+        if parsed_event.raw_event_type == "CHALLENGE_MODE_START" {
+            update_option_if_some(&mut self.zone_name, parsed_event.zone_name.as_ref());
+            if let Some(key_level) = parsed_event.key_level {
+                self.key_level = Some(key_level);
+            }
+        }
+
         if self.recording_active && !is_context_only_event(&parsed_event.raw_event_type) {
             self.record_important_event(&parsed_event, elapsed_seconds);
         }

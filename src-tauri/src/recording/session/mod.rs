@@ -233,7 +233,9 @@ pub(crate) fn spawn_ffmpeg_recording_task(
         };
 
         if finalized_successfully {
-            emit_recording_finalized(&app_handle, &session_config.output_path);
+            let finalized_output_path =
+                super::metadata::rename_finalized_recording_if_named(&session_config.output_path);
+            emit_recording_finalized(&app_handle, &finalized_output_path);
         }
 
         emit_recording_warning_cleared(&app_handle);

@@ -393,6 +393,7 @@ fn is_zone_context_event_type(raw_event_type: &str) -> bool {
             | "ZONE_CHANGED_INDOORS"
             | "PLAYER_ENTERING_WORLD"
             | "MAP_CHANGE"
+            | "CHALLENGE_MODE_START"
     )
 }
 

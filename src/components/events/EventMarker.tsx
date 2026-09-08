@@ -1,4 +1,5 @@
-import { Flag, Skull, Sword } from "lucide-react";
+import { Flag, ShieldOff, Skull, Sword } from "lucide-react";
+import { useMarker } from "../../contexts/MarkerContext";
 import { GameEvent } from "../../types/events";
 
 type EventMarkerVariant = "compact" | "detailed";
@@ -23,28 +24,83 @@ const ICONS: Record<GameEvent["type"], React.ComponentType<{ className?: string 
   kill: Sword,
   death: Skull,
   manual: Flag,
+  interrupt: ShieldOff,
+};
+
+const MARKER_CLASS_NAMES: Record<GameEvent["type"], Record<EventMarkerVariant, string>> = {
+  kill: {
+    compact: "rounded-full bg-neutral-500 text-neutral-900",
+    detailed: "rounded-full border border-neutral-100/45 bg-neutral-500 text-neutral-900",
+  },
+  death: {
+    compact: "rounded-full bg-rose-500 text-rose-950",
+    detailed: "rounded-full border border-rose-200/40 bg-rose-500 text-rose-950",
+  },
+  manual: {
+    compact: "rounded-sm bg-neutral-400 text-neutral-900",
+    detailed: "rounded-sm border border-neutral-100/55 bg-neutral-400 text-neutral-900",
+  },
+  interrupt: {
+    compact: "rounded-full bg-amber-400 text-amber-950",
+    detailed: "rounded-full border border-amber-200/40 bg-amber-400 text-amber-950",
+  },
 };
 
 export function EventMarker({ type, variant = "compact", className }: EventMarkerProps) {
   const Icon = ICONS[type];
-  const colorClassName =
-    type === "manual"
-      ? variant === "detailed"
-        ? "rounded-sm border border-neutral-100/55 bg-neutral-400 text-neutral-900"
-        : "rounded-sm bg-neutral-400 text-neutral-900"
-      : type === "death"
-        ? variant === "detailed"
-          ? "rounded-full border border-rose-200/40 bg-rose-500 text-rose-950"
-          : "rounded-full bg-rose-500 text-rose-950"
-        : variant === "detailed"
-          ? "rounded-full border border-neutral-100/45 bg-neutral-500 text-neutral-900"
-          : "rounded-full bg-neutral-500 text-neutral-900";
 
   return (
     <span
-      className={`flex items-center justify-center ${VARIANT_CLASS_NAMES[variant]} ${colorClassName} ${className || ""}`.trim()}
+      className={`flex items-center justify-center ${VARIANT_CLASS_NAMES[variant]} ${MARKER_CLASS_NAMES[type][variant]} ${className || ""}`.trim()}
     >
       <Icon className={ICON_CLASS_NAMES[variant]} />
     </span>
+  );
+}
+
+const EVENT_TYPE_FILTER_LABELS: Record<GameEvent["type"], string> = {
+  death: "Deaths",
+  interrupt: "Interrupts",
+  manual: "Markers",
+  kill: "Kills",
+};
+
+const DEFAULT_EVENT_TYPE_FILTERS: GameEvent["type"][] = ["death", "interrupt", "manual", "kill"];
+
+interface EventTypeFilterProps {
+  types?: GameEvent["type"][];
+}
+
+export function EventTypeFilter({ types = DEFAULT_EVENT_TYPE_FILTERS }: EventTypeFilterProps) {
+  const { events, eventTypeVisibility, toggleEventTypeVisibility } = useMarker();
+  const availableTypes = types.filter((type) => events.some((event) => event.type === type));
+
+  if (availableTypes.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Event type filters">
+      {availableTypes.map((type) => {
+        const isVisible = eventTypeVisibility[type];
+
+        return (
+          <button
+            key={type}
+            type="button"
+            aria-pressed={isVisible}
+            onClick={() => toggleEventTypeVisibility(type)}
+            className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] transition-colors ${
+              isVisible
+                ? "border-white/20 bg-black/20 text-neutral-200"
+                : "border-white/10 bg-transparent text-neutral-500"
+            }`}
+          >
+            <EventMarker type={type} variant="compact" className={isVisible ? undefined : "opacity-40"} />
+            {EVENT_TYPE_FILTER_LABELS[type]}
+          </button>
+        );
+      })}
+    </div>
   );
 }

@@ -92,6 +92,8 @@ export interface ParseCombatLogDebugResult {
   truncated: boolean;
 }
 
+export const EVENT_SEEK_OFFSET_SECONDS = 5;
+
 const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set(["PARTY_KILL", "UNIT_DIED", "MANUAL_MARKER"]);
 
 const NPC_KINDS = new Set(["NPC", "PET", "GUARDIAN", "UNKNOWN"]);
@@ -156,6 +158,10 @@ export function convertRecordingMetadataToGameEvents(
       }];
     })
     .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+export function isVideoSeekBarEvent(event: GameEvent): boolean {
+  return event.type === "death" || event.type === "manual";
 }
 
 export function convertCombatEvent(combatEvent: CombatEvent): GameEvent {

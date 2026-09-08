@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence } from "motion/react";
 import {
   AlertTriangle,
   Clapperboard,
@@ -12,7 +13,11 @@ import {
 } from "lucide-react";
 import { useVideo } from "../../contexts/VideoContext";
 import { useRecording } from "../../contexts/RecordingContext";
+import { useMarker } from "../../contexts/MarkerContext";
+import { EventMarker } from "../events/EventMarker";
+import { EventTooltip } from "../events/EventTooltip";
 import { ControlIconButton } from "./ControlIconButton";
+import { EVENT_SEEK_OFFSET_SECONDS, isVideoSeekBarEvent, type GameEvent } from "../../types/events";
 import { formatTime } from "../../utils/format";
 
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -38,6 +43,7 @@ export function VideoPlayer() {
   } = useVideo();
 
   const { isRecording, recordingWarning } = useRecording();
+  const { filteredEvents } = useMarker();
 
   const inlineSurfaceHostRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
@@ -51,6 +57,8 @@ export function VideoPlayer() {
   const [videoNativeSize, setVideoNativeSize] = useState({ width: 0, height: 0 });
   const [devicePixelRatio, setDevicePixelRatio] = useState(() => window.devicePixelRatio || 1);
   const [immersiveViewportSize, setImmersiveViewportSize] = useState({ width: 0, height: 0 });
+  const [hoveredSeekBarEvent, setHoveredSeekBarEvent] = useState<GameEvent | null>(null);
+  const [seekBarTooltipX, setSeekBarTooltipX] = useState(0);
 
   const showVideo = Boolean(videoSrc) && !isRecording;
   const toggleImmersiveMode = () => {
@@ -78,6 +86,13 @@ export function VideoPlayer() {
   };
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const seekBarEvents = useMemo(() => {
+    if (duration <= 0) {
+      return [];
+    }
+
+    return filteredEvents.filter(isVideoSeekBarEvent);
+  }, [duration, filteredEvents]);
   const volumeProgress = Math.max(0, Math.min(volume * 100, 100));
   const immersiveVideoStyle =
     isImmersiveMode &&
@@ -301,6 +316,21 @@ export function VideoPlayer() {
     seek(clickPosition * duration);
   };
 
+  const handleSeekBarEventClick = (timestamp: number) => {
+    seek(Math.max(0, timestamp - EVENT_SEEK_OFFSET_SECONDS));
+  };
+
+  const handleSeekBarEventHover = (event: GameEvent, mouseEvent: React.MouseEvent<HTMLButtonElement>) => {
+    const markerRect = mouseEvent.currentTarget.getBoundingClientRect();
+    const barRect = progressRef.current?.getBoundingClientRect();
+    if (!barRect) {
+      return;
+    }
+
+    setSeekBarTooltipX(markerRect.left - barRect.left + markerRect.width / 2);
+    setHoveredSeekBarEvent(event);
+  };
+
   const handleVolumeClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!volumeRef.current) {
       return;
@@ -488,7 +518,7 @@ export function VideoPlayer() {
 
             <div
               ref={progressRef}
-              className="group relative h-2 w-full cursor-pointer rounded-full border border-white/15 bg-neutral-700/80 md:min-w-0 md:flex-1"
+              className="group relative h-2 w-full cursor-pointer overflow-visible rounded-full border border-white/15 bg-neutral-700/80 md:min-w-0 md:flex-1"
               onClick={handleProgressClick}
               onKeyDown={(event) => {
                 if (duration <= 0) {
@@ -533,6 +563,29 @@ export function VideoPlayer() {
                 className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-emerald-100 opacity-0 transition-opacity group-hover:opacity-100"
                 style={{ left: `calc(${progress}% - 6px)` }}
               />
+              {seekBarEvents.map((event) => {
+                const position = (event.timestamp / duration) * 100;
+                return (
+                  <button
+                    key={event.id}
+                    type="button"
+                    className="absolute top-1/2 z-10 -ml-2 -translate-y-1/2 rounded-sm p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
+                    style={{ left: `${position}%` }}
+                    onClick={(mouseEvent) => {
+                      mouseEvent.stopPropagation();
+                      handleSeekBarEventClick(event.timestamp);
+                    }}
+                    onMouseEnter={(mouseEvent) => handleSeekBarEventHover(event, mouseEvent)}
+                    onMouseLeave={() => setHoveredSeekBarEvent(null)}
+                    aria-label={`Seek to ${event.type} at ${formatTime(event.timestamp)}`}
+                  >
+                    <EventMarker type={event.type} variant="compact" />
+                  </button>
+                );
+              })}
+              <AnimatePresence>
+                {hoveredSeekBarEvent && <EventTooltip event={hoveredSeekBarEvent} x={seekBarTooltipX} />}
+              </AnimatePresence>
             </div>
 
             <div className="flex items-center gap-2 md:shrink-0">

@@ -14,9 +14,9 @@ export function EventTooltip({ event, x }: EventTooltipProps) {
     "Kill";
 
   const description =
-    event.type === "death" ? `${event.target} died` :
+    event.type === "death" ? `${event.target ?? "Unknown"} died` :
     event.type === "manual" ? "User marked this moment" :
-    `${event.source} killed ${event.target}`;
+    `${event.source ?? "Unknown"} killed ${event.target ?? "Unknown"}`;
 
   return (
     <AnimatedTooltip x={x}>

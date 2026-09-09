@@ -35,7 +35,7 @@ impl ImportantCombatEvent {
     ) -> Option<super::CombatEvent> {
         let timestamp = recording_elapsed_seconds?;
         match self.event_type.as_str() {
-            "PARTY_KILL" | "UNIT_DIED" => Some(super::CombatEvent {
+            "PARTY_KILL" | "UNIT_DIED" | "BLOODLUST" | "COMBAT_RES" => Some(super::CombatEvent {
                 timestamp,
                 event_type: self.event_type,
                 source: self.source,
@@ -208,10 +208,10 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
     let mut fields = trimmed_line.split(',');
     let header = fields.next()?.trim();
     let raw_event_type = extract_event_type(header)?;
-    let normalized_event_type = normalize_important_event_type(raw_event_type)?;
     let remaining_fields = fields
         .map(|value| value.trim().to_string())
         .collect::<Vec<String>>();
+    let normalized_event_type = normalize_important_event_type(raw_event_type, &remaining_fields)?;
 
     let source_name = remaining_fields.get(1).map(|value| value.as_str());
     let source_guid = remaining_fields.first().map(|value| value.as_str());
@@ -233,12 +233,14 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
     })
 }
 
-fn normalize_important_event_type(event_type: &str) -> Option<&'static str> {
+fn normalize_important_event_type(event_type: &str, fields: &[String]) -> Option<&'static str> {
     match event_type {
         "PARTY_KILL" => Some("PARTY_KILL"),
         "UNIT_DIED" | "UNIT_DESTROYED" => Some("UNIT_DIED"),
         "SPELL_INTERRUPT" => Some("SPELL_INTERRUPT"),
         "SPELL_DISPEL" => Some("SPELL_DISPEL"),
+        "SPELL_RESURRECT" => Some("COMBAT_RES"),
+        "SPELL_CAST_SUCCESS" => classify_cast_success_event(fields),
         "ENCOUNTER_START" => Some("ENCOUNTER_START"),
         "ENCOUNTER_END" => Some("ENCOUNTER_END"),
         event_type if is_zone_context_event_type(event_type) => Some("ZONE_CONTEXT"),
@@ -247,6 +249,40 @@ fn normalize_important_event_type(event_type: &str) -> Option<&'static str> {
         | "BATTLEGROUND_START" | "BATTLEGROUND_END" => Some("PVP_CONTEXT"),
         _ => None,
     }
+}
+
+fn classify_cast_success_event(fields: &[String]) -> Option<&'static str> {
+    let spell_id = extract_spell_id(fields)?;
+
+    if is_bloodlust_spell_id(spell_id) {
+        return Some("BLOODLUST");
+    }
+
+    None
+}
+
+fn extract_spell_id(fields: &[String]) -> Option<u32> {
+    fields.get(8)?.trim_matches('"').parse().ok()
+}
+
+fn is_bloodlust_spell_id(spell_id: u32) -> bool {
+    matches!(
+        spell_id,
+        2825 |     // Bloodlust
+        32182 |    // Heroism
+        80353 |    // Time Warp
+        90355 |    // Ancient Hysteria
+        160452 |   // Netherwinds
+        264667 |   // Primal Rage
+        272678 |   // Primal Rage (command pet)
+        390386 |   // Fury of the Aspects
+        178207 |   // Drums of Fury
+        230935 |   // Drums of the Mountain
+        256740 |   // Drums of the Maelstrom
+        309658 |   // Drums of Deathly Ferocity
+        381301 |   // Feral Hide Drums
+        444257 // Thunderous Drums
+    )
 }
 
 fn should_ignore_unconscious_death(parsed_line: &ParsedLogLine) -> bool {

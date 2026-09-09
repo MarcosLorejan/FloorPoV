@@ -16,6 +16,8 @@ const EVENT_LIST_LABELS: Record<GameEvent["type"], string> = {
   interrupt: "Interrupt",
   manual: "Marker",
   kill: "Kill",
+  bloodlust: "Bloodlust",
+  combatRes: "Combat Res",
 };
 
 function getEventListDetail(event: GameEvent): string {
@@ -29,6 +31,14 @@ function getEventListDetail(event: GameEvent): string {
 
   if (event.type === "manual") {
     return "Manual marker";
+  }
+
+  if (event.type === "bloodlust") {
+    return formatUnitName(event.source);
+  }
+
+  if (event.type === "combatRes") {
+    return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
   }
 
   return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
@@ -67,14 +77,14 @@ export function PlaybackEventList() {
           <ListVideo className="h-3.5 w-3.5 text-neutral-300" />
           Events
         </div>
-        <EventTypeFilter types={["death", "interrupt", "manual"]} />
+        <EventTypeFilter types={["death", "interrupt", "manual", "bloodlust", "combatRes"]} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
             {videoSrc && !isRecording
-              ? "No deaths, interrupts, or markers in this recording."
-              : "Load a recording to see deaths, interrupts, and markers."}
+              ? "No deaths, interrupts, bloodlust, combat res, or markers in this recording."
+              : "Load a recording to see deaths, interrupts, bloodlust, combat res, and markers."}
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>

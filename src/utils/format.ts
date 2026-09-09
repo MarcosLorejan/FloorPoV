@@ -55,6 +55,10 @@ export function getEventTypeLabel(eventType: string): string {
       return "Death";
     case "SPELL_INTERRUPT":
       return "Interrupt";
+    case "BLOODLUST":
+      return "Bloodlust";
+    case "COMBAT_RES":
+      return "Combat Res";
     case "SPELL_DISPEL":
       return "Dispel";
     case "MANUAL_MARKER":

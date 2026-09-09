@@ -443,7 +443,11 @@ fn encounter_key(encounter_name: &str, encounter_category: &str) -> String {
 fn is_structural_event_type(event_type: &str) -> bool {
     matches!(
         event_type,
-        EVENT_MANUAL_MARKER | EVENT_ENCOUNTER_START | EVENT_ENCOUNTER_END
+        EVENT_MANUAL_MARKER
+            | EVENT_ENCOUNTER_START
+            | EVENT_ENCOUNTER_END
+            | "BLOODLUST"
+            | "COMBAT_RES"
     )
 }
 

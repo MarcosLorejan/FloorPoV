@@ -115,6 +115,155 @@ fn seeds_dungeon_name_from_challenge_start_before_recording() {
 }
 
 #[test]
+fn records_bloodlust_from_time_warp_cast() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let time_warp_line = build_line(
+        "SPELL_CAST_SUCCESS",
+        &[
+            "Player-1111-00000001",
+            "\"MageOne-NA\"",
+            "0x514",
+            "0x0",
+            "Player-1111-00000001",
+            "\"MageOne-NA\"",
+            "0x514",
+            "0x0",
+            "80353",
+            "\"Time Warp\"",
+            "64",
+        ],
+    );
+    accumulator.consume_combat_log_line(&time_warp_line, 12.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.important_events.len(), 1);
+    assert_eq!(snapshot.important_events[0].event_type, "BLOODLUST");
+    assert_eq!(
+        snapshot.important_events[0].source.as_deref(),
+        Some("MageOne-NA")
+    );
+}
+
+#[test]
+fn records_combat_res_from_spell_resurrect() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let combat_res_line = build_line(
+        "SPELL_RESURRECT",
+        &[
+            "Player-1111-00000002",
+            "\"DruidOne-NA\"",
+            "0x514",
+            "0x0",
+            "Player-1111-00000003",
+            "\"DeadOne-NA\"",
+            "0x514",
+            "0x0",
+            "20484",
+            "\"Rebirth\"",
+            "8",
+        ],
+    );
+    accumulator.consume_combat_log_line(&combat_res_line, 40.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.important_events.len(), 1);
+    assert_eq!(snapshot.important_events[0].event_type, "COMBAT_RES");
+    assert_eq!(
+        snapshot.important_events[0].source.as_deref(),
+        Some("DruidOne-NA")
+    );
+    assert_eq!(
+        snapshot.important_events[0].target.as_deref(),
+        Some("DeadOne-NA")
+    );
+}
+
+#[test]
+fn ignores_unrelated_spell_cast_success() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let moonfire_line = build_line(
+        "SPELL_CAST_SUCCESS",
+        &[
+            "Player-1111-00000002",
+            "\"DruidOne-NA\"",
+            "0x514",
+            "0x0",
+            "Creature-0-0-0-0-1002-0000000000",
+            "\"Enemy1\"",
+            "0x10a48",
+            "0x0",
+            "8921",
+            "\"Moonfire\"",
+            "64",
+        ],
+    );
+    accumulator.consume_combat_log_line(&moonfire_line, 5.0);
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot.important_events.is_empty());
+}
+
+#[test]
+fn ignores_rebirth_cast_success_in_favor_of_resurrect() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let rebirth_cast_line = build_line(
+        "SPELL_CAST_SUCCESS",
+        &[
+            "Player-1111-00000002",
+            "\"DruidOne-NA\"",
+            "0x514",
+            "0x0",
+            "Player-1111-00000003",
+            "\"DeadOne-NA\"",
+            "0x514",
+            "0x0",
+            "20484",
+            "\"Rebirth\"",
+            "8",
+        ],
+    );
+    accumulator.consume_combat_log_line(&rebirth_cast_line, 41.0);
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot.important_events.is_empty());
+}
+
+#[test]
+fn ignores_soulstone_preapply_cast() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let soulstone_line = build_line(
+        "SPELL_CAST_SUCCESS",
+        &[
+            "Player-1111-00000004",
+            "\"LockOne-NA\"",
+            "0x514",
+            "0x0",
+            "Player-1111-00000003",
+            "\"DeadOne-NA\"",
+            "0x514",
+            "0x0",
+            "20707",
+            "\"Soulstone\"",
+            "32",
+        ],
+    );
+    accumulator.consume_combat_log_line(&soulstone_line, 3.0);
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot.important_events.is_empty());
+}
+
+#[test]
 fn captures_player_overview_from_combatant_info() {
     let mut accumulator = RecordingMetadataAccumulator::default();
 

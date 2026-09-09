@@ -1,7 +1,7 @@
 export interface GameEvent {
   id: string;
   timestamp: number;
-  type: "kill" | "death" | "manual" | "interrupt";
+  type: "kill" | "death" | "manual" | "interrupt" | "bloodlust" | "combatRes";
   source?: string;
   target?: string;
   targetKind?: string;
@@ -99,6 +99,8 @@ const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "UNIT_DIED",
   "MANUAL_MARKER",
   "SPELL_INTERRUPT",
+  "BLOODLUST",
+  "COMBAT_RES",
 ]);
 
 const NPC_KINDS = new Set(["NPC", "PET", "GUARDIAN", "UNKNOWN"]);
@@ -137,6 +139,14 @@ function mapEventTypeToGameEventType(eventType: string): GameEvent["type"] {
     return "interrupt";
   }
 
+  if (eventType === "BLOODLUST") {
+    return "bloodlust";
+  }
+
+  if (eventType === "COMBAT_RES") {
+    return "combatRes";
+  }
+
   return "manual";
 }
 
@@ -166,11 +176,37 @@ export function convertRecordingMetadataToGameEvents(
         targetKind: importantEvent.targetKind,
       }];
     })
-    .sort((a, b) => a.timestamp - b.timestamp);
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .reduce<GameEvent[]>((uniqueEvents, event) => {
+      if (event.type !== "bloodlust" && event.type !== "combatRes") {
+        uniqueEvents.push(event);
+        return uniqueEvents;
+      }
+
+      const hasNearbyDuplicate = uniqueEvents.some((existingEvent) => {
+        return (
+          existingEvent.type === event.type &&
+          existingEvent.source === event.source &&
+          Math.abs(existingEvent.timestamp - event.timestamp) < 2
+        );
+      });
+
+      if (!hasNearbyDuplicate) {
+        uniqueEvents.push(event);
+      }
+
+      return uniqueEvents;
+    }, []);
 }
 
 export function isVideoSeekBarEvent(event: GameEvent): boolean {
-  return event.type === "death" || event.type === "manual" || event.type === "interrupt";
+  return (
+    event.type === "death" ||
+    event.type === "manual" ||
+    event.type === "interrupt" ||
+    event.type === "bloodlust" ||
+    event.type === "combatRes"
+  );
 }
 
 export function shouldShowGameEvent(
@@ -182,8 +218,8 @@ export function shouldShowGameEvent(
     return false;
   }
 
-  // Interrupts target NPCs by design, so the NPC hide toggle would wipe kicks.
-  if (event.type === "interrupt") {
+  // These types are useful even when the dest unit is an NPC or the caster themselves.
+  if (event.type === "interrupt" || event.type === "bloodlust" || event.type === "combatRes") {
     return true;
   }
 

@@ -12,6 +12,8 @@ const EVENT_LABELS: Record<GameEvent["type"], string> = {
   manual: "Manual Marker",
   interrupt: "Interrupt",
   kill: "Kill",
+  bloodlust: "Bloodlust",
+  combatRes: "Combat Res",
 };
 
 function getEventDescription(event: GameEvent): string {
@@ -25,6 +27,14 @@ function getEventDescription(event: GameEvent): string {
 
   if (event.type === "interrupt") {
     return `${event.source ?? "Unknown"} interrupted ${event.target ?? "Unknown"}`;
+  }
+
+  if (event.type === "bloodlust") {
+    return `${event.source ?? "Unknown"} used Bloodlust`;
+  }
+
+  if (event.type === "combatRes") {
+    return `${event.source ?? "Unknown"} combat ressed ${event.target ?? "Unknown"}`;
   }
 
   return `${event.source ?? "Unknown"} killed ${event.target ?? "Unknown"}`;

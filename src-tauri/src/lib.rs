@@ -36,7 +36,9 @@ pub fn run() {
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(
                     tauri_plugin_window_state::StateFlags::all()
-                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE
+                        & !tauri_plugin_window_state::StateFlags::MAXIMIZED
+                        & !tauri_plugin_window_state::StateFlags::FULLSCREEN,
                 )
                 .build(),
         )
@@ -59,11 +61,15 @@ pub fn run() {
                 .ok_or_else(|| "Main application window was not created".to_string())?;
             main_window.set_icon(tauri::include_image!("./icons/128x128.png"))?;
 
-            if let Err(error) = tray::install_tray(app) {
-                tracing::error!("Failed to install the system tray: {error}");
-            }
+            let tray_ready = match tray::install_tray(app) {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::error!("Failed to install the system tray: {error}");
+                    false
+                }
+            };
 
-            if tray::should_start_minimized(app.handle()) {
+            if tray_ready && tray::should_start_minimized(app.handle()) {
                 tray::hide_main_window(app.handle());
             } else {
                 tray::show_main_window(app.handle());

@@ -760,7 +760,7 @@ export function Settings() {
                   });
                 }}
                 label="Start Minimized to Tray"
-                description="Launch in the tray so auto-record can arm without opening the window. The X button always hides to the tray; quit from the tray icon."
+                description="Launch in the tray on boot and when you open the app. Click the tray icon to show the window. The X button always hides to the tray; quit from the tray icon."
               />
             </div>
           </SettingsSection>

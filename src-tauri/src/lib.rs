@@ -32,7 +32,14 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -51,7 +58,6 @@ pub fn run() {
                 .get_webview_window("main")
                 .ok_or_else(|| "Main application window was not created".to_string())?;
             main_window.set_icon(tauri::include_image!("./icons/128x128.png"))?;
-            main_window.set_skip_taskbar(false)?;
 
             if let Err(error) = tray::install_tray(app) {
                 tracing::error!("Failed to install the system tray: {error}");

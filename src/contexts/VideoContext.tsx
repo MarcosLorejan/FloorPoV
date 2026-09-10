@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect, ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { VIDEO_LOADING_TIMEOUT_MS, VOLUME_MAX, VOLUME_MIN } from "../types/settings";
 
 interface VideoContextType {
@@ -169,6 +170,16 @@ export function VideoProvider({ children }: { children: ReactNode }) {
       window.cancelAnimationFrame(frameId);
     };
   }, [isPlaying]);
+
+  useEffect(() => {
+    const unlistenHiddenToTray = listen("window-hidden-to-tray", () => {
+      videoRef.current?.pause();
+    });
+
+    return () => {
+      unlistenHiddenToTray.then((unsubscribe) => unsubscribe());
+    };
+  }, []);
 
   useEffect(() => {
     return () => {

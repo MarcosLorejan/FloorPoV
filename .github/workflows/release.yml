@@ -58,7 +58,7 @@ jobs:
 
             Includes Windows installers, updater signatures, and latest.json metadata.
           releaseDraft: false
-          prerelease: true
+          prerelease: false
           args: --bundles nsis
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true

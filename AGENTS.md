@@ -73,17 +73,17 @@ cargo test <pattern>
 cargo test --lib
 ```
 
-## Local Windows install
+## Shipping app updates
 
-After squash-merging a PR that changes the app (frontend, backend, or bundled resources) into `main`, rebuild and reinstall the local fork so boot and game-mode pick up the change. Do not wait for the user to ask. Skip this for docs-only or comment-only PRs.
+After squash-merging an app PR into `main`, ship it through GitHub Releases so the installed app can update itself. Skip docs-only PRs.
 
-1. Stop running `FloorPoV` processes.
-2. In a VS 2022 `vcvars64.bat` shell with bun on PATH, write a temp JSON `{"bundle":{"createUpdaterArtifacts":false}}` and run `bun x tauri build --ci --config <that-file>`. Do not put an extra `--` before `--ci`; that forwards flags to cargo.
-3. Silently install `%LOCALAPPDATA%\Temp\...\bundle\nsis\FloorPoV_*_x64-setup.exe` with `/S`. The app lives at `%LOCALAPPDATA%\FloorPoV\FloorPoV.exe`.
-4. Copy the setup to `%USERPROFILE%\Downloads`.
-5. Relaunch the installed exe. Keep `enableAutoUpdate` false.
+1. Include a version bump in that PR (or a follow-up `chore/release-*` PR) in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`.
+2. After merge, tag `v<version>` from `main` or run `gh workflow run Release -f tag_name=v<version>`.
+3. Wait until the Release workflow uploads `latest.json`. Do not local-install NSIS.
 
-If updater signing fails but the NSIS setup exists, install that file anyway.
+Local NSIS reinstall is only when the updater pubkey or signing key changes, because the already-installed app cannot verify a new key. The 0.1.9-beta pubkey cutover needs one signed NSIS install; later versions update in-app.
+
+Keep `enableAutoUpdate` on. Never point the updater at the official FloorPoV releases.
 
 ## Code Style
 

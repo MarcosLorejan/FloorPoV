@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { check } from "@tauri-apps/plugin-updater";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { TitleBar } from "./TitleBar";
 import { Sidebar } from "./Sidebar";
@@ -17,6 +16,7 @@ import { SettingsProvider, useSettings } from "../../contexts/SettingsContext";
 import { MarkerProvider } from "../../contexts/MarkerContext";
 import { WclUploadProvider } from "../../contexts/WclUploadContext";
 import { panelVariants, smoothTransition } from "../../lib/motion";
+import { installAvailableAppUpdate } from "../../services/app-updater";
 import { MEDIA_SECTION_RESIZE_DELTA } from "../../types/settings";
 import { type AppView } from "../../types/ui";
 
@@ -27,8 +27,6 @@ const AUTO_UPDATE_SESSION_FLAG = "floorpov:auto-update-check-ran";
 function LayoutContent() {
   const { settings, isLoading: isSettingsLoading } = useSettings();
   const hasAttemptedAutoUpdateRef = useRef(false);
-  const autoUpdateDownloadedBytesRef = useRef(0);
-  const autoUpdateContentLengthRef = useRef<number | null>(null);
   const [currentView, setCurrentView] = useState<AppView>("main");
   const [gameModeNavigationVersion, setGameModeNavigationVersion] = useState(0);
   const [isDebugBuild, setIsDebugBuild] = useState(false);
@@ -99,59 +97,15 @@ function LayoutContent() {
           window.sessionStorage.setItem(AUTO_UPDATE_SESSION_FLAG, "1");
         }
 
-        const update = await check();
-        if (!update || isCancelled) {
-          return;
-        }
-
-        setAutoUpdateBannerText("Update found. Downloading and installing...");
-        autoUpdateDownloadedBytesRef.current = 0;
-        autoUpdateContentLengthRef.current = null;
-
-        await update.downloadAndInstall((event) => {
-          if (isCancelled) {
-            return;
-          }
-
-          switch (event.event) {
-            case "Started": {
-              const contentLength = event.data.contentLength;
-              autoUpdateContentLengthRef.current = contentLength ?? null;
-              if (!contentLength || contentLength <= 0) {
-                setAutoUpdateBannerText("Update found. Downloading and installing...");
-                return;
-              }
-
-              setAutoUpdateBannerText("Update found. Downloading update (0%)...");
-              return;
-            }
-            case "Progress": {
-              autoUpdateDownloadedBytesRef.current += event.data.chunkLength;
-              const contentLength = autoUpdateContentLengthRef.current;
-
-              if (contentLength && contentLength > 0) {
-                const progressPercent = Math.min(
-                  99,
-                  Math.floor((autoUpdateDownloadedBytesRef.current / contentLength) * 100),
-                );
-                setAutoUpdateBannerText(`Update found. Downloading update (${progressPercent}%)...`);
-                return;
-              }
-
-              const downloadedMiB = autoUpdateDownloadedBytesRef.current / (1024 * 1024);
-              setAutoUpdateBannerText(
-                `Update found. Downloaded ${downloadedMiB.toFixed(1)} MiB...`,
-              );
-              return;
-            }
-            case "Finished": {
-              autoUpdateContentLengthRef.current = null;
-              setAutoUpdateBannerText("Download complete. Installing update...");
-            }
+        const updateResult = await installAvailableAppUpdate((statusText) => {
+          if (!isCancelled) {
+            setAutoUpdateBannerText(statusText);
           }
         });
 
-        setAutoUpdateBannerText("Update installed. Restarting app...");
+        if (updateResult === "up-to-date" || isCancelled) {
+          return;
+        }
       } catch (error) {
         if (!isCancelled) {
           console.error("Auto-update check failed:", error);

@@ -1,0 +1,16 @@
+---
+description: Rebuild and reinstall the local FloorPoV NSIS app after merging to main
+alwaysApply: true
+---
+
+# Local Windows install
+
+After squash-merging an app change into `main` (frontend, backend, or bundled resources), rebuild and silently reinstall the fork. Do not wait for the user to ask. Skip docs-only PRs.
+
+1. Stop running `FloorPoV` processes.
+2. VS 2022 `vcvars64.bat` + bun on PATH.
+3. Temp JSON `{"bundle":{"createUpdaterArtifacts":false}}`, then `bun x tauri build --ci --config <file>`. Never extra `--` before `--ci`.
+4. Install `FloorPoV_*_x64-setup.exe /S` over `%LOCALAPPDATA%\FloorPoV\FloorPoV.exe`.
+5. Copy the setup to `%USERPROFILE%\Downloads` and relaunch. Keep auto-update off.
+
+If signing fails but the NSIS file exists, install it anyway.

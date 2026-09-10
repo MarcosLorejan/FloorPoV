@@ -73,6 +73,18 @@ cargo test <pattern>
 cargo test --lib
 ```
 
+## Local Windows install
+
+After squash-merging a PR that changes the app (frontend, backend, or bundled resources) into `main`, rebuild and reinstall the local fork so boot and game-mode pick up the change. Do not wait for the user to ask. Skip this for docs-only or comment-only PRs.
+
+1. Stop running `FloorPoV` processes.
+2. In a VS 2022 `vcvars64.bat` shell with bun on PATH, write a temp JSON `{"bundle":{"createUpdaterArtifacts":false}}` and run `bun x tauri build --ci --config <that-file>`. Do not put an extra `--` before `--ci`; that forwards flags to cargo.
+3. Silently install `%LOCALAPPDATA%\Temp\...\bundle\nsis\FloorPoV_*_x64-setup.exe` with `/S`. The app lives at `%LOCALAPPDATA%\FloorPoV\FloorPoV.exe`.
+4. Copy the setup to `%USERPROFILE%\Downloads`.
+5. Relaunch the installed exe. Keep `enableAutoUpdate` false.
+
+If updater signing fails but the NSIS setup exists, install that file anyway.
+
 ## Code Style
 
 ### TypeScript and React

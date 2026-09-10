@@ -1,16 +1,16 @@
 ---
-description: Rebuild and reinstall the local FloorPoV NSIS app after merging to main
+description: Ship FloorPoV updates through GitHub Releases instead of local NSIS reinstalls
 alwaysApply: true
 ---
 
-# Local Windows install
+# Shipping app updates
 
-After squash-merging an app change into `main` (frontend, backend, or bundled resources), rebuild and silently reinstall the fork. Do not wait for the user to ask. Skip docs-only PRs.
+After squash-merging an app change into `main`, ship a GitHub Release so the installed app updates itself. Skip docs-only PRs.
 
-1. Stop running `FloorPoV` processes.
-2. VS 2022 `vcvars64.bat` + bun on PATH.
-3. Temp JSON `{"bundle":{"createUpdaterArtifacts":false}}`, then `bun x tauri build --ci --config <file>`. Never extra `--` before `--ci`.
-4. Install `FloorPoV_*_x64-setup.exe /S` over `%LOCALAPPDATA%\FloorPoV\FloorPoV.exe`.
-5. Copy the setup to `%USERPROFILE%\Downloads` and relaunch. Keep auto-update off.
+1. Bump `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` in the app PR or a follow-up `chore/release-*` PR.
+2. After merge, tag `v<version>` or run `gh workflow run Release -f tag_name=v<version>`.
+3. Wait for `latest.json`. Do not local-install NSIS.
 
-If signing fails but the NSIS file exists, install it anyway.
+Local NSIS reinstall is only when the updater pubkey or signing key changes. The 0.1.9-beta pubkey cutover needs one signed NSIS install; later versions update in-app.
+
+Keep `enableAutoUpdate` on. Never point the updater at official FloorPoV releases.

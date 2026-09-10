@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useRecording } from "../../contexts/RecordingContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { installAvailableAppUpdate } from "../../services/app-updater";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { FormField } from "../ui/FormField";
@@ -138,6 +139,8 @@ export function Settings() {
   ]);
   const [isLoadingVideoEncoders, setIsLoadingVideoEncoders] = useState(false);
   const [videoEncodersError, setVideoEncodersError] = useState<string | null>(null);
+  const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
+  const [updateCheckStatus, setUpdateCheckStatus] = useState<string | null>(null);
 
   useEffect(() => {
     setFormData(settings);
@@ -308,6 +311,27 @@ export function Settings() {
   const handleCancel = () => {
     setFormData(settings);
     setHasChanges(false);
+  };
+
+  const handleCheckForUpdate = async () => {
+    if (isCheckingForUpdate) {
+      return;
+    }
+
+    setIsCheckingForUpdate(true);
+    setUpdateCheckStatus("Checking for updates...");
+
+    try {
+      const updateResult = await installAvailableAppUpdate(setUpdateCheckStatus);
+      if (updateResult === "up-to-date") {
+        setUpdateCheckStatus("You're on the latest version.");
+      }
+    } catch (error) {
+      console.error("Update check failed:", error);
+      setUpdateCheckStatus("Could not check for updates.");
+    } finally {
+      setIsCheckingForUpdate(false);
+    }
   };
 
   const handleBrowseWowFolder = async () => {
@@ -777,8 +801,25 @@ export function Settings() {
                   });
                 }}
                 label="Enable Auto Updates"
-                description="Check this fork's GitHub releases on launch. Off by default so the official FloorPoV updater cannot replace this build."
+                description="On launch, download updates from this fork's GitHub releases. The official FloorPoV updater cannot replace this build."
               />
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    void handleCheckForUpdate();
+                  }}
+                  disabled={isCheckingForUpdate}
+                >
+                  {isCheckingForUpdate ? "Checking..." : "Check for Updates"}
+                </Button>
+                {updateCheckStatus && (
+                  <p className="text-xs text-neutral-400" role="status" aria-live="polite">
+                    {updateCheckStatus}
+                  </p>
+                )}
+              </div>
             </div>
           </SettingsSection>
 

@@ -12,7 +12,7 @@ interface SettingsContextType {
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
-const FORK_UPDATER_CUTOVER_KEY = "fork-updater-cutover";
+const FORK_IN_APP_UPDATES_KEY = "fork-in-app-updates-v1";
 
 function getLegacyDefaultOutputFolderPath(defaultFolder: string): string | null {
   if (defaultFolder.endsWith('\\FloorPoV')) {
@@ -60,8 +60,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
         const defaultFolder = await invoke<string>('get_default_output_folder');
         const legacyDefaultFolder = getLegacyDefaultOutputFolderPath(defaultFolder);
-        const hasCompletedUpdaterCutover =
-          (await store.get<boolean>(FORK_UPDATER_CUTOVER_KEY)) === true;
+        const hasEnabledInAppUpdates =
+          (await store.get<boolean>(FORK_IN_APP_UPDATES_KEY)) === true;
         let shouldPersistMergedSettings = false;
 
         if (!mergedSettings.outputFolder) {
@@ -77,8 +77,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           shouldPersistMergedSettings = true;
         }
 
-        if (!hasCompletedUpdaterCutover && mergedSettings.enableAutoUpdate) {
-          mergedSettings.enableAutoUpdate = false;
+        if (!hasEnabledInAppUpdates && !mergedSettings.enableAutoUpdate) {
+          mergedSettings.enableAutoUpdate = true;
           shouldPersistMergedSettings = true;
         }
 
@@ -86,11 +86,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           await store.set('recording-settings', mergedSettings);
         }
 
-        if (!hasCompletedUpdaterCutover) {
-          await store.set(FORK_UPDATER_CUTOVER_KEY, true);
+        if (!hasEnabledInAppUpdates) {
+          await store.set(FORK_IN_APP_UPDATES_KEY, true);
         }
 
-        if (shouldPersistMergedSettings || !hasCompletedUpdaterCutover) {
+        if (shouldPersistMergedSettings || !hasEnabledInAppUpdates) {
           await store.save();
         }
 
@@ -108,7 +108,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         const initialSettings = { ...DEFAULT_SETTINGS, outputFolder: defaultFolder };
         setSettings(initialSettings);
         await store.set('recording-settings', initialSettings);
-        await store.set(FORK_UPDATER_CUTOVER_KEY, true);
+        await store.set(FORK_IN_APP_UPDATES_KEY, true);
         await store.save();
         
         if (initialSettings.markerHotkey !== 'none') {

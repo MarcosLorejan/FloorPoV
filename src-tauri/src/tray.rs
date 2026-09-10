@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{App, AppHandle, Manager};
+use tauri::{App, AppHandle, Emitter, Manager};
 
 pub(crate) struct AppExitState {
     pub(crate) allow_exit: AtomicBool,
@@ -36,6 +36,10 @@ pub(crate) fn hide_main_window(app_handle: &AppHandle) {
 
     if let Err(error) = window.set_skip_taskbar(true) {
         tracing::warn!("Failed to hide FloorPoV from the taskbar: {error}");
+    }
+
+    if let Err(error) = app_handle.emit("window-hidden-to-tray", ()) {
+        tracing::warn!("Failed to emit window-hidden-to-tray: {error}");
     }
 }
 

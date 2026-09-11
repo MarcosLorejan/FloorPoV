@@ -1,6 +1,7 @@
 mod combat_log;
 mod hotkey;
 mod recording;
+mod screenshot;
 mod settings;
 mod tray;
 mod wcl_upload;
@@ -132,6 +133,7 @@ pub fn run() {
             settings::get_recording_metadata,
             settings::delete_recording,
             settings::cleanup_old_recordings,
+            screenshot::save_playback_screenshot,
             combat_log::watch::start_combat_watch,
             combat_log::watch::stop_combat_watch,
             combat_log::watch::set_combat_watch_recording_output,

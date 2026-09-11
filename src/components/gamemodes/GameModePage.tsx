@@ -98,7 +98,8 @@ export function GameModePage({ gameMode }: GameModePageProps) {
   const [isEventsOpen, setIsEventsOpen] = useState(false);
   const metadataRequestPathRef = useRef<string | null>(null);
   const { setEncounters } = useMarker();
-  const { recordings, isLoading: isRecordingsLoading } = useRecordingsList();
+  const { recordings, isLoading: isRecordingsLoading, error: recordingsError, loadRecordings, setRecordings } =
+    useRecordingsList();
 
   const filterEvent = useCallback(
     (targetKind: string | undefined, target: string | undefined) => {
@@ -160,7 +161,11 @@ export function GameModePage({ gameMode }: GameModePageProps) {
     metadataRequestPathRef.current = null;
   }, []);
 
-  useClearStalePlayback(recordings, !isRecordingsLoading, handleStalePlaybackCleared);
+  useClearStalePlayback(
+    recordings,
+    !isRecordingsLoading && !recordingsError,
+    handleStalePlaybackCleared,
+  );
 
   const sortedEventCounts = useMemo(() => {
     if (!recordingMetadata?.importantEventCounts) {
@@ -260,6 +265,11 @@ export function GameModePage({ gameMode }: GameModePageProps) {
           </header>
           <GameModeRecordingsBrowser
             gameMode={gameMode}
+            recordings={recordings}
+            isLoading={isRecordingsLoading}
+            listError={recordingsError}
+            loadRecordings={loadRecordings}
+            setRecordings={setRecordings}
             onRecordingActivate={handleRecordingActivate}
           />
         </>

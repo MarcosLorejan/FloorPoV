@@ -92,7 +92,7 @@ export function RecordingsList({
   const { isRecording, loadPlaybackMetadata } = useRecording();
   const reduceMotion = useReducedMotion();
   const { recordings, isLoading, error: listError, loadRecordings, setRecordings } = useRecordingsList();
-  useClearStalePlayback(recordings, !isLoading);
+  useClearStalePlayback(recordings, !isLoading && !listError);
   const [loadingRecordingPath, setLoadingRecordingPath] = useState<string | null>(null);
   const [deletingRecordingPaths, setDeletingRecordingPaths] = useState<string[]>([]);
   const [pendingDeleteRecordings, setPendingDeleteRecordings] = useState<RecordingInfo[]>([]);

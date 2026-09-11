@@ -1,10 +1,9 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { Clock3, Film, LoaderCircle, RefreshCw, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { useRecording } from "../../contexts/RecordingContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useVideo } from "../../contexts/VideoContext";
-import { useRecordingsList } from "../../hooks/useRecordingsList";
 import { RecordingInfo } from "../../types/recording";
 import { type GameMode } from "../../types/ui";
 import { formatBytes, formatDate } from "../../utils/format";
@@ -17,6 +16,11 @@ type DateRangeFilter = "all" | "24h" | "7d" | "30d";
 
 interface GameModeRecordingsBrowserProps {
   gameMode: GameMode;
+  recordings: RecordingInfo[];
+  isLoading: boolean;
+  listError: string | null;
+  loadRecordings: () => Promise<void>;
+  setRecordings: Dispatch<SetStateAction<RecordingInfo[]>>;
   onRecordingActivate: (recording: RecordingInfo) => void;
 }
 
@@ -77,12 +81,16 @@ function toSearchText(recording: RecordingInfo): string {
 
 export function GameModeRecordingsBrowser({
   gameMode,
+  recordings,
+  isLoading,
+  listError,
+  loadRecordings,
+  setRecordings,
   onRecordingActivate,
 }: GameModeRecordingsBrowserProps) {
   const { settings } = useSettings();
   const { isRecording, loadPlaybackMetadata } = useRecording();
   const { loadVideo, isVideoLoading } = useVideo();
-  const { recordings, isLoading, error: listError, loadRecordings, setRecordings } = useRecordingsList();
   const [actionError, setActionError] = useState<string | null>(null);
   const displayError = actionError ?? listError;
   const [activatingRecordingPath, setActivatingRecordingPath] = useState<string | null>(null);

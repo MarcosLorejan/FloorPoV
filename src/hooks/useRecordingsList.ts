@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useSettings } from "../contexts/SettingsContext";
 import { RecordingInfo } from "../types/recording";
 
-interface UseRecordingsListResult {
+export interface UseRecordingsListResult {
   recordings: RecordingInfo[];
   isLoading: boolean;
   error: string | null;
@@ -25,6 +25,7 @@ export function useRecordingsList(): UseRecordingsListResult {
   const loadRecordings = useCallback(async () => {
     if (!settings.outputFolder) {
       setRecordings([]);
+      setError(null);
       setIsLoading(false);
       return;
     }

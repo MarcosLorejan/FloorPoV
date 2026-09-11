@@ -95,11 +95,12 @@ fn import_combat_log_onto_recording_inner(
 
     let parsed_snapshot = parse_combat_log_file_to_snapshot(&combat_log_file)?;
     let existing_metadata = read_recording_metadata(&recording_file)?;
+    let video_duration_seconds = required_video_duration(video_duration_seconds)?;
     let aligned_snapshot = align_snapshot_to_recording(
         parsed_snapshot,
         &recording_file,
         existing_metadata.as_ref(),
-        sanitized_duration(video_duration_seconds),
+        Some(video_duration_seconds),
     )?;
 
     let imported_event_count = aligned_snapshot.important_events.len() as u64;
@@ -181,6 +182,11 @@ fn validate_combat_log_path(combat_log_path: &Path) -> Result<(), String> {
 
 fn sanitized_duration(video_duration_seconds: Option<f64>) -> Option<f64> {
     video_duration_seconds.filter(|duration| duration.is_finite() && *duration > 0.0)
+}
+
+fn required_video_duration(video_duration_seconds: Option<f64>) -> Result<f64, String> {
+    sanitized_duration(video_duration_seconds)
+        .ok_or_else(|| "Wait until the video duration is available before importing.".to_string())
 }
 
 fn parse_combat_log_file_to_snapshot(
@@ -271,15 +277,6 @@ fn align_snapshot_to_recording(
         return Err(unmatched_message.to_string());
     }
 
-    let span = snapshot_event_span(&snapshot);
-    if duration_fits(span, video_duration_seconds) {
-        return Ok(shift_short_log_to_recording_clock(
-            snapshot,
-            recording_path,
-            video_duration_seconds,
-        ));
-    }
-
     if let Some(clock) = recording_clock_from_path(recording_path) {
         if let Some(windowed) =
             window_snapshot_to_clock(snapshot.clone(), clock, video_duration_seconds)
@@ -294,6 +291,15 @@ fn align_snapshot_to_recording(
         {
             return Ok(windowed);
         }
+    }
+
+    let span = snapshot_event_span(&snapshot);
+    if duration_fits(span, video_duration_seconds) {
+        return Ok(shift_short_log_to_recording_clock(
+            snapshot,
+            recording_path,
+            video_duration_seconds,
+        ));
     }
 
     Err(unmatched_message.to_string())
@@ -1020,6 +1026,65 @@ mod tests {
             Some(60.0),
         )
         .is_none());
+        std::fs::remove_dir_all(&directory).ok();
+    }
+
+    #[test]
+    fn short_span_log_still_windows_to_recording_clock() {
+        let directory = unique_temp_directory();
+        let recording_path = directory.join("screen_recording_20260911_175201.mp4");
+        std::fs::write(&recording_path, b"test").expect("recording file");
+        let log_path = write_log(
+            &directory,
+            "WoWCombatLog.txt",
+            &format!(
+                "{}\n{}\n",
+                party_kill_line("9/11/2026 17:52:05.000", "Enemy0"),
+                party_kill_line("9/11/2026 17:52:30.000", "Enemy1")
+            ),
+        );
+
+        import_combat_log_onto_recording_inner(
+            recording_path.to_string_lossy().to_string(),
+            log_path.to_string_lossy().to_string(),
+            ImportCombatLogMode::Overwrite,
+            Some(40.0),
+        )
+        .expect("import");
+
+        let loaded = read_recording_metadata(&recording_path)
+            .expect("read")
+            .expect("sidecar");
+        let kills: Vec<_> = loaded
+            .important_events
+            .iter()
+            .filter(|event| event.event_type == "PARTY_KILL")
+            .collect();
+        assert_eq!(kills.len(), 2);
+        assert!((kills[0].timestamp_seconds - 4.0).abs() < 0.01);
+        assert!((kills[1].timestamp_seconds - 29.0).abs() < 0.01);
+        std::fs::remove_dir_all(&directory).ok();
+    }
+
+    #[test]
+    fn rejects_import_without_video_duration() {
+        let directory = unique_temp_directory();
+        let recording_path = directory.join("screen_recording_20260911_175201.mp4");
+        std::fs::write(&recording_path, b"test").expect("recording file");
+        let log_path = write_log(
+            &directory,
+            "WoWCombatLog.txt",
+            &format!("{}\n", party_kill_line("9/11/2026 17:52:05.000", "Enemy0")),
+        );
+
+        let error = import_combat_log_onto_recording_inner(
+            recording_path.to_string_lossy().to_string(),
+            log_path.to_string_lossy().to_string(),
+            ImportCombatLogMode::Overwrite,
+            None,
+        )
+        .expect_err("duration required");
+        assert!(error.to_lowercase().contains("duration"));
         std::fs::remove_dir_all(&directory).ok();
     }
 

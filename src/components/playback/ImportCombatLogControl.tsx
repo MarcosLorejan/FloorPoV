@@ -28,7 +28,8 @@ export function ImportCombatLogControl() {
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
-  const canImport = Boolean(loadedFilePath) && !isRecording && !isImporting;
+  const hasVideoDuration = Number.isFinite(duration) && duration > 0;
+  const canImport = Boolean(loadedFilePath) && hasVideoDuration && !isRecording && !isImporting;
 
   const closeModeDialog = useCallback(() => {
     setModeDialog(null);
@@ -61,7 +62,7 @@ export function ImportCombatLogControl() {
 
   const importCombatLog = useCallback(
     async (combatLogPath: string, mode: ImportCombatLogMode) => {
-      if (!loadedFilePath || isImporting) {
+      if (!loadedFilePath || isImporting || !hasVideoDuration) {
         return;
       }
 
@@ -73,7 +74,7 @@ export function ImportCombatLogControl() {
           recordingPath: loadedFilePath,
           combatLogPath,
           mode,
-          videoDurationSeconds: Number.isFinite(duration) && duration > 0 ? duration : null,
+          videoDurationSeconds: duration,
         });
 
         await loadPlaybackMetadata(loadedFilePath);
@@ -104,6 +105,7 @@ export function ImportCombatLogControl() {
       bumpPlaybackMetadataEpoch,
       closeModeDialog,
       duration,
+      hasVideoDuration,
       isImporting,
       loadPlaybackMetadata,
       loadedFilePath,
@@ -161,7 +163,13 @@ export function ImportCombatLogControl() {
   return (
     <div className="relative">
       <ControlIconButton
-        label={isImporting ? "Importing combat log" : "Import combat log"}
+        label={
+          isImporting
+            ? "Importing combat log"
+            : hasVideoDuration
+              ? "Import combat log"
+              : "Wait for the video to load before importing"
+        }
         onClick={() => {
           void handleSelectCombatLog();
         }}

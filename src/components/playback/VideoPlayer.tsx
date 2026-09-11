@@ -55,12 +55,16 @@ export function VideoPlayer() {
   const { filteredEvents } = useMarker();
   const { settings } = useSettings();
   const reduceMotion = useReducedMotion();
+  const prefersReducedMotion = reduceMotion !== false;
 
   const inlineSurfaceHostRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
   const speedMenuRef = useRef<HTMLDivElement>(null);
   const immersiveSurfaceRef = useRef<HTMLDivElement>(null);
+  const fullscreenEventsTabRef = useRef<HTMLButtonElement>(null);
+  const previousImmersiveModeRef = useRef(false);
+  const tweenSurfaceUntilRef = useRef(0);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [volumeBeforeMute, setVolumeBeforeMute] = useState(1);
   const [isImmersiveMode, setIsImmersiveMode] = useState(false);
@@ -94,6 +98,10 @@ export function VideoPlayer() {
     : hasInlineSurfaceRect
       ? inlineSurfaceRect
       : null;
+  const shouldTweenSurface =
+    !prefersReducedMotion &&
+    (previousImmersiveModeRef.current !== isImmersiveMode ||
+      performance.now() < tweenSurfaceUntilRef.current);
 
   const handleVolumeToggle = () => {
     if (volume === 0) {
@@ -182,6 +190,9 @@ export function VideoPlayer() {
 
       if (isFullscreenEventsOpen) {
         setIsFullscreenEventsOpen(false);
+        window.requestAnimationFrame(() => {
+          fullscreenEventsTabRef.current?.focus();
+        });
         return;
       }
 
@@ -200,7 +211,7 @@ export function VideoPlayer() {
       return;
     }
 
-    if (reduceMotion) {
+    if (prefersReducedMotion) {
       setIsImmersiveLayerActive(false);
       return;
     }
@@ -212,7 +223,19 @@ export function VideoPlayer() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [isImmersiveMode, reduceMotion]);
+  }, [isImmersiveMode, prefersReducedMotion]);
+
+  useEffect(() => {
+    if (previousImmersiveModeRef.current === isImmersiveMode) {
+      return;
+    }
+
+    if (!prefersReducedMotion) {
+      tweenSurfaceUntilRef.current = performance.now() + smoothTransition.duration * 1000;
+    }
+
+    previousImmersiveModeRef.current = isImmersiveMode;
+  }, [isImmersiveMode, prefersReducedMotion]);
 
   useEffect(() => {
     if (!canShowFullscreenEvents) {
@@ -464,7 +487,7 @@ export function VideoPlayer() {
           : undefined
       }
       style={surfacePosition ? undefined : { visibility: "hidden" }}
-      transition={reduceMotion ? { duration: 0 } : smoothTransition}
+      transition={shouldTweenSurface ? smoothTransition : { duration: 0 }}
       aria-busy={isVideoLoading}
     >
       {showVideo && (
@@ -791,16 +814,17 @@ export function VideoPlayer() {
       )}
 
       {canShowFullscreenEvents && (
-        <div className="absolute inset-y-0 right-0 z-[210] flex">
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-[210] flex">
           <motion.div
-            className="ml-auto flex h-full"
+            className="pointer-events-none ml-auto flex h-full"
             initial={false}
             animate={{ x: isFullscreenEventsOpen ? 0 : FULLSCREEN_EVENTS_PANEL_WIDTH_PX }}
-            transition={reduceMotion ? { duration: 0 } : smoothTransition}
+            transition={prefersReducedMotion ? { duration: 0 } : smoothTransition}
           >
             <button
+              ref={fullscreenEventsTabRef}
               type="button"
-              className="mt-[28vh] flex h-fit flex-col items-center gap-2 rounded-l-sm border border-r-0 border-white/15 bg-neutral-950/90 px-1.5 py-3 text-neutral-200 transition-colors hover:bg-neutral-900 hover:text-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
+              className="pointer-events-auto mt-[28vh] flex h-fit flex-col items-center gap-2 rounded-l-sm border border-r-0 border-white/15 bg-neutral-950/90 px-1.5 py-3 text-neutral-200 transition-colors hover:bg-neutral-900 hover:text-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
               onClick={toggleFullscreenEventsPanel}
               aria-expanded={isFullscreenEventsOpen}
               aria-controls={FULLSCREEN_EVENTS_PANEL_ID}
@@ -815,7 +839,7 @@ export function VideoPlayer() {
             </button>
             <div
               id={FULLSCREEN_EVENTS_PANEL_ID}
-              className="h-full"
+              className={`h-full ${isFullscreenEventsOpen ? "pointer-events-auto" : ""}`}
               style={{ width: FULLSCREEN_EVENTS_PANEL_WIDTH_PX }}
               inert={!isFullscreenEventsOpen}
               aria-hidden={!isFullscreenEventsOpen}

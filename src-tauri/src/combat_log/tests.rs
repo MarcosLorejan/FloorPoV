@@ -1,5 +1,5 @@
 use super::metadata::RecordingMetadataAccumulator;
-use super::parse::LogTimestamp;
+use super::parse::{extract_combat_trigger_event, parse_important_combat_event, LogTimestamp};
 use super::MAX_PERSISTED_HIGH_VOLUME_EVENTS;
 
 #[test]
@@ -1344,4 +1344,117 @@ fn ignores_unconscious_death_events() {
         2,
         "Unconscious deaths should be ignored"
     );
+}
+
+#[test]
+fn challenge_mode_lines_emit_start_and_end_triggers() {
+    let mut context = super::parse::DebugParseContext::default();
+    let start_event = parse_important_combat_event(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        &mut context,
+    )
+    .expect("challenge start should parse");
+    let start_trigger =
+        extract_combat_trigger_event(&start_event).expect("challenge start should trigger record");
+    assert_eq!(start_trigger.trigger_type, "start");
+    assert_eq!(start_trigger.mode, "mythicPlus");
+
+    let end_event = parse_important_combat_event(
+        &build_line(
+            "CHALLENGE_MODE_END",
+            &["2805", "1", "15", "1116000", "0", "0"],
+        ),
+        &mut context,
+    )
+    .expect("challenge end should parse");
+    let end_trigger =
+        extract_combat_trigger_event(&end_event).expect("challenge end should trigger stop");
+    assert_eq!(end_trigger.trigger_type, "end");
+    assert_eq!(end_trigger.mode, "mythicPlus");
+}
+
+#[test]
+fn dungeon_encounters_do_not_emit_raid_auto_record_triggers() {
+    let mut context = super::parse::DebugParseContext::default();
+    parse_important_combat_event(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        &mut context,
+    );
+
+    let encounter_start = parse_important_combat_event(
+        &build_line("ENCOUNTER_START", &["1", "\"Kystia Manaheart\"", "8"]),
+        &mut context,
+    )
+    .expect("encounter start should parse");
+    assert!(
+        extract_combat_trigger_event(&encounter_start).is_none(),
+        "M+ boss pulls must not start a raid auto-recording"
+    );
+}
+
+#[test]
+fn abandoned_key_emits_mythic_plus_end_when_log_rotates() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.consume_combat_log_line(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        0.0,
+    );
+    accumulator.begin_recording_session(1.0);
+
+    let trigger = accumulator
+        .take_abandoned_auto_session_end_trigger()
+        .expect("open key should emit an end trigger when the combat log is abandoned");
+    assert_eq!(trigger.trigger_type, "end");
+    assert_eq!(trigger.mode, "mythicPlus");
+    assert_eq!(trigger.event_type, "CHALLENGE_MODE_END");
+    assert_eq!(trigger.key_level, Some(15));
+    assert!(
+        accumulator
+            .take_abandoned_auto_session_end_trigger()
+            .is_none(),
+        "abandoned end must be emitted only once"
+    );
+}
+
+#[test]
+fn completed_key_does_not_emit_abandoned_end() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.consume_combat_log_line(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        0.0,
+    );
+    accumulator.begin_recording_session(1.0);
+    accumulator.consume_combat_log_line(
+        &build_line(
+            "CHALLENGE_MODE_END",
+            &["2805", "1", "15", "1116000", "0", "0"],
+        ),
+        1200.0,
+    );
+
+    assert!(accumulator
+        .take_abandoned_auto_session_end_trigger()
+        .is_none());
+}
+
+#[test]
+fn idle_recording_does_not_emit_abandoned_end() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    assert!(accumulator
+        .take_abandoned_auto_session_end_trigger()
+        .is_none());
 }

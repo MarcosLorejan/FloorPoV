@@ -14,7 +14,7 @@ use super::parse::{
     ImportantCombatEvent, LogTimestamp,
 };
 use super::{
-    EVENT_ENCOUNTER_END, EVENT_ENCOUNTER_START, EVENT_MANUAL_MARKER,
+    CombatTriggerEvent, EVENT_ENCOUNTER_END, EVENT_ENCOUNTER_START, EVENT_MANUAL_MARKER,
     MAX_PERSISTED_HIGH_VOLUME_EVENTS,
 };
 
@@ -134,6 +134,43 @@ impl RecordingMetadataAccumulator {
 
     pub(crate) fn is_recording_session_active(&self) -> bool {
         self.recording_active
+    }
+
+    pub(crate) fn take_abandoned_auto_session_end_trigger(&mut self) -> Option<CombatTriggerEvent> {
+        if !self.recording_active {
+            return None;
+        }
+
+        let trigger = if self.context.in_challenge_mode {
+            CombatTriggerEvent {
+                trigger_type: "end".to_string(),
+                mode: "mythicPlus".to_string(),
+                event_type: "CHALLENGE_MODE_END".to_string(),
+                encounter_name: self.latest_encounter_name.clone(),
+                key_level: self.key_level,
+            }
+        } else if self.context.in_pvp_match {
+            CombatTriggerEvent {
+                trigger_type: "end".to_string(),
+                mode: "pvp".to_string(),
+                event_type: "PVP_MATCH_COMPLETE".to_string(),
+                encounter_name: self.latest_encounter_name.clone(),
+                key_level: None,
+            }
+        } else {
+            return None;
+        };
+
+        if trigger.mode == "mythicPlus" {
+            self.context.in_challenge_mode = false;
+            self.context.current_key_level = None;
+            self.context.challenge_mode_start_log_timestamp = None;
+        } else {
+            self.context.in_pvp_match = false;
+            self.context.pvp_match_start_log_timestamp = None;
+        }
+
+        Some(trigger)
     }
 
     pub(crate) fn current_context_zone_name(&self) -> Option<String> {

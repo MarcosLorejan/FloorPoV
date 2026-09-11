@@ -78,6 +78,10 @@ fn find_wow_process_id() -> Result<u32, String> {
     })
 }
 
+pub(crate) fn is_wow_process_running() -> bool {
+    find_wow_process_id().is_ok()
+}
+
 fn desired_wave_format() -> WaveFormat {
     WaveFormat::new(
         SYSTEM_AUDIO_BITS_PER_SAMPLE,

@@ -19,12 +19,13 @@ interface UseRecordingsListResult {
 export function useRecordingsList(): UseRecordingsListResult {
   const { settings } = useSettings();
   const [recordings, setRecordings] = useState<RecordingInfo[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadRecordings = useCallback(async () => {
     if (!settings.outputFolder) {
       setRecordings([]);
+      setIsLoading(false);
       return;
     }
 

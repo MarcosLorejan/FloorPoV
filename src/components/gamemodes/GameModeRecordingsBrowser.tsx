@@ -167,7 +167,7 @@ export function GameModeRecordingsBrowser({
 
       try {
         await loadPlaybackMetadata(recording.file_path);
-        loadVideo(convertFileSrc(recording.file_path));
+        loadVideo(convertFileSrc(recording.file_path), recording.file_path);
         onRecordingActivate(recording);
       } catch (loadError) {
         console.error("Failed to activate recording:", loadError);

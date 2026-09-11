@@ -91,7 +91,7 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
         <EventTypeFilter types={["death", "interrupt", "manual", "bloodlust", "combatRes"]} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        {!hasTimelineEvents ? (
+        {!hasTimelineEvents || !videoSrc || isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
             {videoSrc && !isRecording
               ? "No deaths, interrupts, bloodlust, combat res, or markers in this recording."

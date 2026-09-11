@@ -82,6 +82,7 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
 
   const clearEvents = useCallback(() => {
     setEvents([]);
+    setEncounters([]);
   }, []);
 
   return (

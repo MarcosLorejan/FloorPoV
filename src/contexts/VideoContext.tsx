@@ -11,13 +11,15 @@ interface VideoContextType {
   volume: number;
   playbackRate: number;
   videoSrc: string | null;
+  loadedFilePath: string | null;
   play: () => void;
   pause: () => void;
   togglePlay: () => void;
   seek: (time: number) => void;
   setVolume: (volume: number) => void;
   setPlaybackRate: (rate: number) => void;
-  loadVideo: (src: string) => void;
+  loadVideo: (src: string, filePath: string) => void;
+  clearPlayback: () => void;
   updateTime: (time: number) => void;
   updateDuration: (duration: number) => void;
   syncIsPlaying: (playing: boolean) => void;
@@ -31,6 +33,7 @@ export function VideoProvider({ children }: { children: ReactNode }) {
   const objectUrlRef = useRef<string | null>(null);
   const loadingTimeoutRef = useRef<number | null>(null);
   const videoSrcRef = useRef<string | null>(null);
+  const loadedFilePathRef = useRef<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -38,6 +41,7 @@ export function VideoProvider({ children }: { children: ReactNode }) {
   const [volume, setVolumeState] = useState(1);
   const [playbackRate, setPlaybackRateState] = useState(1);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [loadedFilePath, setLoadedFilePath] = useState<string | null>(null);
 
   const play = useCallback(() => {
     videoRef.current?.play();
@@ -119,8 +123,11 @@ export function VideoProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loadVideo = useCallback(
-    (src: string) => {
+    (src: string, filePath: string) => {
       const currentSrc = videoSrcRef.current;
+      loadedFilePathRef.current = filePath;
+      setLoadedFilePath(filePath);
+
       if (src === currentSrc) {
         if (videoRef.current) {
           videoRef.current.pause();
@@ -150,6 +157,34 @@ export function VideoProvider({ children }: { children: ReactNode }) {
     },
     [setVideoLoading]
   );
+
+  const clearPlayback = useCallback(() => {
+    if (loadingTimeoutRef.current !== null) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+
+    const videoElement = videoRef.current;
+    if (videoElement) {
+      videoElement.pause();
+      videoElement.removeAttribute("src");
+      videoElement.load();
+    }
+
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+
+    videoSrcRef.current = null;
+    loadedFilePathRef.current = null;
+    setVideoSrc(null);
+    setLoadedFilePath(null);
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
+    setIsVideoLoading(false);
+  }, []);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -203,6 +238,7 @@ export function VideoProvider({ children }: { children: ReactNode }) {
         volume,
         playbackRate,
         videoSrc,
+        loadedFilePath,
         play,
         pause,
         togglePlay,
@@ -210,6 +246,7 @@ export function VideoProvider({ children }: { children: ReactNode }) {
         setVolume,
         setPlaybackRate,
         loadVideo,
+        clearPlayback,
         updateTime,
         updateDuration,
         syncIsPlaying,

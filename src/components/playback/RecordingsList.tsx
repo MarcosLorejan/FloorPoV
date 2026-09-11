@@ -6,6 +6,7 @@ import { useRecording } from '../../contexts/RecordingContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useVideo } from '../../contexts/VideoContext';
 import { useRecordingsList } from '../../hooks/useRecordingsList';
+import { useClearStalePlayback } from '../../hooks/useClearStalePlayback';
 import { panelVariants, smoothTransition } from '../../lib/motion';
 import { RecordingInfo } from '../../types/recording';
 import { type GameMode } from '../../types/ui';
@@ -91,6 +92,7 @@ export function RecordingsList({
   const { isRecording, loadPlaybackMetadata } = useRecording();
   const reduceMotion = useReducedMotion();
   const { recordings, isLoading, error: listError, loadRecordings, setRecordings } = useRecordingsList();
+  useClearStalePlayback(recordings, !isLoading && !listError);
   const [loadingRecordingPath, setLoadingRecordingPath] = useState<string | null>(null);
   const [deletingRecordingPaths, setDeletingRecordingPaths] = useState<string[]>([]);
   const [pendingDeleteRecordings, setPendingDeleteRecordings] = useState<RecordingInfo[]>([]);
@@ -130,7 +132,7 @@ export function RecordingsList({
       await loadPlaybackMetadata(recording.file_path);
 
       const recordingSource = convertFileSrc(recording.file_path);
-      loadVideo(recordingSource);
+      loadVideo(recordingSource, recording.file_path);
       onRecordingActivate?.(recording);
     } catch (loadError) {
       console.error('Failed to load recording:', loadError);

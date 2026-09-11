@@ -8,8 +8,8 @@ use crate::recording::metadata::{
 };
 
 use super::parse::{
-    extract_raw_event_type_from_line, is_context_only_event, normalize_name,
-    parse_combatant_info_snapshot, parse_important_combat_event,
+    extract_raw_event_type_from_line, is_context_only_event, log_clock_diff_seconds,
+    normalize_name, parse_combatant_info_snapshot, parse_important_combat_event,
     parse_player_identities_from_log_line, should_reset_player_roster_for_event, DebugParseContext,
     ImportantCombatEvent, LogTimestamp,
 };
@@ -153,24 +153,16 @@ impl RecordingMetadataAccumulator {
         if let (Some(origin), Some(current)) =
             (self.session_log_origin_seconds, log_timestamp_seconds)
         {
-            let diff = current - origin;
-
-            // Normal case: current >= origin
-            if diff >= 0.0 {
+            let diff = log_clock_diff_seconds(origin, current);
+            if diff.is_finite() && diff >= 0.0 {
                 return Some(diff);
-            }
-
-            // Midnight rollover: current < origin means we crossed midnight
-            let next_day_diff = current + 86400.0 - origin;
-            if next_day_diff >= 0.0 {
-                return Some(next_day_diff);
             }
 
             tracing::warn!(
                 origin_seconds = origin,
                 current_seconds = current,
                 diff_seconds = diff,
-                "Log-clock produced negative diff even after midnight adjustment, using fallback"
+                "Log-clock produced an invalid diff, using fallback"
             );
         }
 
@@ -449,6 +441,83 @@ fn is_structural_event_type(event_type: &str) -> bool {
             | "BLOODLUST"
             | "COMBAT_RES"
     )
+}
+
+const LOG_CLOCK_REBASE_EPSILON_SECONDS: f64 = 0.05;
+
+pub(crate) fn rebase_recording_metadata_from_log_clock(metadata: &mut RecordingMetadata) -> bool {
+    let parseable_events = metadata
+        .important_events
+        .iter()
+        .enumerate()
+        .filter_map(|(index, event)| {
+            let log_timestamp = event.log_timestamp.as_deref()?;
+            let log_seconds = LogTimestamp::parse(log_timestamp)?.to_seconds_since_midnight();
+            Some((index, log_seconds, event.timestamp_seconds))
+        })
+        .collect::<Vec<_>>();
+
+    if parseable_events.len() < 2 {
+        return false;
+    }
+
+    let Some((_, anchor_log_seconds, anchor_video_seconds)) = parseable_events
+        .iter()
+        .max_by(|left, right| {
+            left.2
+                .partial_cmp(&right.2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left.0.cmp(&right.0))
+        })
+        .copied()
+    else {
+        return false;
+    };
+
+    let mut did_rebase = false;
+    for (index, log_seconds, video_seconds) in parseable_events {
+        let next_seconds =
+            anchor_video_seconds + log_clock_diff_seconds(anchor_log_seconds, log_seconds);
+        if (video_seconds - next_seconds).abs() < LOG_CLOCK_REBASE_EPSILON_SECONDS {
+            continue;
+        }
+
+        metadata.important_events[index].timestamp_seconds = next_seconds;
+        did_rebase = true;
+    }
+
+    if did_rebase {
+        sync_encounters_from_rebased_events(metadata);
+    }
+
+    did_rebase
+}
+
+fn sync_encounters_from_rebased_events(metadata: &mut RecordingMetadata) {
+    let encounter_starts = metadata
+        .important_events
+        .iter()
+        .filter(|event| event.event_type == EVENT_ENCOUNTER_START)
+        .collect::<Vec<_>>();
+    let encounter_ends = metadata
+        .important_events
+        .iter()
+        .filter(|event| event.event_type == EVENT_ENCOUNTER_END)
+        .collect::<Vec<_>>();
+
+    for (index, encounter) in metadata.encounters.iter_mut().enumerate() {
+        if let Some(start_event) = encounter_starts.get(index) {
+            if start_event.encounter_name.as_deref() == Some(encounter.name.as_str()) {
+                encounter.started_at_seconds = Some(start_event.timestamp_seconds);
+            }
+        }
+
+        if let Some(end_event) = encounter_ends.get(index) {
+            if end_event.encounter_name.as_deref() == Some(encounter.name.as_str()) {
+                encounter.ended_at_seconds = Some(end_event.timestamp_seconds);
+            }
+        }
+    }
 }
 
 pub(crate) fn persist_recording_metadata_snapshot(

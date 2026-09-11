@@ -580,6 +580,8 @@ impl LogTimestamp {
         let day: u32 = date_parts[1].parse().ok()?;
         // date_parts[2] would be the year (if present), but we ignore it since we only care about time-of-day
 
+        // Archon and some log exporters append a timezone (`25.067-3`, `25.067+00:00`).
+        let time_part = strip_log_timezone_suffix(time_part);
         let time_parts: Vec<&str> = time_part.split(':').collect();
         if time_parts.len() != 3 {
             return None;
@@ -592,8 +594,12 @@ impl LogTimestamp {
         let (second, fractional) = if let Some((sec, frac_str)) = second_and_millis.split_once('.')
         {
             let sec_val: u32 = sec.parse().ok()?;
-            let frac_val: f64 = format!("0.{}", frac_str).parse().ok()?;
-            (sec_val, frac_val)
+            if frac_str.is_empty() {
+                (sec_val, 0.0)
+            } else {
+                let frac_val: f64 = format!("0.{frac_str}").parse().ok()?;
+                (sec_val, frac_val)
+            }
         } else {
             (second_and_millis.parse().ok()?, 0.0)
         };
@@ -614,6 +620,30 @@ impl LogTimestamp {
             + (self.minute as f64) * 60.0
             + (self.second as f64)
             + self.fractional_seconds
+    }
+}
+
+pub(crate) fn log_clock_diff_seconds(origin_seconds: f64, current_seconds: f64) -> f64 {
+    let mut diff = current_seconds - origin_seconds;
+    // Keep the shortest same-day offset. Only wrap when the recording crossed midnight.
+    if diff > 43_200.0 {
+        diff -= 86_400.0;
+    } else if diff < -43_200.0 {
+        diff += 86_400.0;
+    }
+
+    diff
+}
+
+fn strip_log_timezone_suffix(value: &str) -> &str {
+    let without_z = value
+        .strip_suffix('Z')
+        .or_else(|| value.strip_suffix('z'))
+        .unwrap_or(value);
+
+    match without_z.find(['+', '-']) {
+        Some(index) => &without_z[..index],
+        None => without_z,
     }
 }
 

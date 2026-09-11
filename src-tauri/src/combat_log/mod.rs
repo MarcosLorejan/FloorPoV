@@ -1,5 +1,5 @@
 pub(crate) mod debug;
-mod metadata;
+pub(crate) mod metadata;
 pub(crate) mod parse;
 pub(crate) mod watch;
 

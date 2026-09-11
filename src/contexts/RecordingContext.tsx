@@ -14,6 +14,13 @@ import {
   RecordingMetadata,
 } from "../types/events";
 import { RecordingStartedPayload, CleanupResult, RecordingCommandSettings, RecordingOrigin, AutoTriggerMode } from "../types/recording";
+import {
+  AUTO_STOP_GRACE_MS,
+  WOW_PROCESS_GONE_POLL_MS,
+  nextMissingWowCheckCount,
+  resolveAutoRecordTriggerAction,
+  shouldStopAutoRecordForMissingWow,
+} from "../utils/auto-record-policy";
 
 interface RecordingContextType {
   isRecording: boolean;
@@ -29,10 +36,6 @@ interface RecordingContextType {
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
 }
-
-const AUTO_STOP_GRACE_MS = 5000;
-const WOW_PROCESS_GONE_POLL_MS = 3000;
-const WOW_PROCESS_GONE_CHECKS_BEFORE_STOP = 2;
 
 const RecordingContext = createContext<RecordingContextType | undefined>(undefined);
 
@@ -276,69 +279,54 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
 
     const unlistenCombatTrigger = listen<CombatTriggerEvent>("combat-trigger", (event) => {
       const trigger = event.payload;
-      if (!settings.enableAutoRecording) {
-        return;
-      }
+      const action = resolveAutoRecordTriggerAction(
+        {
+          enableAutoRecording: settings.enableAutoRecording,
+          isRecording: isRecordingRef.current,
+          recordingOrigin: recordingOriginRef.current,
+          activeAutoTriggerMode: activeAutoTriggerModeRef.current,
+          operationInFlight: operationInFlightRef.current,
+          pendingAutoStopMode: pendingAutoStopModeRef.current,
+        },
+        { triggerType: trigger.triggerType, mode: trigger.mode },
+      );
 
-      if (trigger.triggerType === "start") {
-        const shouldKeepRaidRecording =
-          trigger.mode === "raid" &&
-          pendingAutoStopTimeoutRef.current !== null &&
-          pendingAutoStopModeRef.current === "raid";
-
-        if (shouldKeepRaidRecording) {
-          clearPendingAutoStop();
-        } else if (pendingAutoStopTimeoutRef.current !== null && trigger.mode !== "raid") {
-          clearPendingAutoStop();
-        }
-
-        if (operationInFlightRef.current) {
-          if (trigger.mode !== "raid") {
-            pendingAutoStartModeRef.current = trigger.mode;
-          }
+      switch (action.type) {
+        case "ignore":
           return;
-        }
-
-        if (isRecordingRef.current) {
-          if (recordingOriginRef.current !== "auto" || trigger.mode === "raid") {
-            return;
-          }
-
-          pendingAutoStartModeRef.current = trigger.mode;
+        case "keepRecording":
+          clearPendingAutoStop();
+          return;
+        case "start":
+          clearPendingAutoStop();
+          void startRecordingInternalRef.current("auto", action.mode);
+          return;
+        case "queueStart":
+          clearPendingAutoStop();
+          pendingAutoStartModeRef.current = action.mode;
+          return;
+        case "stopThenStart":
+          clearPendingAutoStop();
+          pendingAutoStartModeRef.current = action.mode;
           void stopRecordingInternalRef.current(false);
           return;
-        }
+        case "scheduleStop":
+          pendingAutoStopModeRef.current = action.mode;
+          pendingAutoStopTimeoutRef.current = window.setTimeout(() => {
+            pendingAutoStopTimeoutRef.current = null;
+            pendingAutoStopModeRef.current = null;
 
-        void startRecordingInternalRef.current("auto", trigger.mode);
-        return;
-      }
+            if (
+              !isRecordingRef.current ||
+              recordingOriginRef.current !== "auto" ||
+              operationInFlightRef.current
+            ) {
+              return;
+            }
 
-      if (
-        trigger.triggerType === "end" &&
-        !operationInFlightRef.current &&
-        isRecordingRef.current &&
-        recordingOriginRef.current === "auto" &&
-        activeAutoTriggerModeRef.current === trigger.mode
-      ) {
-        if (pendingAutoStopTimeoutRef.current !== null) {
+            void stopRecordingInternalRef.current(false);
+          }, AUTO_STOP_GRACE_MS);
           return;
-        }
-
-        pendingAutoStopModeRef.current = trigger.mode;
-        pendingAutoStopTimeoutRef.current = window.setTimeout(() => {
-          pendingAutoStopTimeoutRef.current = null;
-          pendingAutoStopModeRef.current = null;
-
-          if (
-            !isRecordingRef.current ||
-            recordingOriginRef.current !== "auto" ||
-            operationInFlightRef.current
-          ) {
-            return;
-          }
-
-          void stopRecordingInternalRef.current(false);
-        }, AUTO_STOP_GRACE_MS);
       }
     });
 
@@ -603,20 +591,17 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (wowIsRunning) {
-          consecutiveMissingWowChecks = 0;
-          return;
-        }
-
-        consecutiveMissingWowChecks += 1;
-        if (consecutiveMissingWowChecks < WOW_PROCESS_GONE_CHECKS_BEFORE_STOP) {
-          return;
-        }
-
+        consecutiveMissingWowChecks = nextMissingWowCheckCount(
+          wowIsRunning,
+          consecutiveMissingWowChecks,
+        );
         if (
-          !isRecordingRef.current ||
-          recordingOriginRef.current !== "auto" ||
-          operationInFlightRef.current
+          !shouldStopAutoRecordForMissingWow(
+            consecutiveMissingWowChecks,
+            isRecordingRef.current,
+            recordingOriginRef.current,
+            operationInFlightRef.current,
+          )
         ) {
           return;
         }

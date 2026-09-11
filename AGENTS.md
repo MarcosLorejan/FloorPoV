@@ -60,9 +60,12 @@ cargo fmt
 
 ### Tests
 
-No JS/TS test framework is configured in the repo right now.
+Frontend unit tests use the built-in Bun test runner. Put `*.test.ts` next to the module under test. `tsc --noEmit` excludes those files so `bun:test` types stay out of the app compile.
 
-If you add a test framework, document setup and commands in this file and in `package.json` scripts.
+```bash
+bun test
+bun test src/utils/auto-record-policy.test.ts
+```
 
 Rust tests:
 

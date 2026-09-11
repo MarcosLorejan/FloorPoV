@@ -10,6 +10,7 @@ import {
   Monitor,
   RefreshCw,
   Settings2,
+  Swords,
   Video,
   Volume2,
   XCircle,
@@ -20,6 +21,7 @@ import { installAvailableAppUpdate } from "../../services/app-updater";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { FormField } from "../ui/FormField";
+import { TabControls, type TabControlItem } from "../ui/TabControls";
 import {
   AudioCaptureMode,
   CaptureSource,
@@ -95,6 +97,14 @@ const FIELD_IDS = {
   showFullscreenEventsPanel: "settings-show-fullscreen-events-panel",
 };
 
+type SettingsTab = "recording" | "combat" | "app";
+
+const SETTINGS_TAB_ITEMS: TabControlItem<SettingsTab>[] = [
+  { value: "recording", label: "Recording", icon: Video },
+  { value: "combat", label: "Combat", icon: Swords },
+  { value: "app", label: "App", icon: AppWindow },
+];
+
 
 
 function formatCaptureWindowLabel(title: string, processName: string | null): string {
@@ -142,6 +152,7 @@ export function Settings() {
   const [videoEncodersError, setVideoEncodersError] = useState<string | null>(null);
   const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
   const [updateCheckStatus, setUpdateCheckStatus] = useState<string | null>(null);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("recording");
 
   useEffect(() => {
     setFormData(settings);
@@ -431,13 +442,25 @@ export function Settings() {
               <Settings2 className="h-4 w-4 text-neutral-300" />
               Settings
             </h1>
-            <p className="text-xs uppercase tracking-[0.12em] text-neutral-500">Set up capture, quality, and automation</p>
+            <p className="text-xs uppercase tracking-[0.12em] text-neutral-500">
+              Capture, combat log, and app behavior
+            </p>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-6 pb-10 [scrollbar-gutter:stable] md:px-6">
-        <div className="w-full space-y-4">
+      <TabControls
+        value={activeSettingsTab}
+        onChange={setActiveSettingsTab}
+        items={SETTINGS_TAB_ITEMS}
+        ariaLabel="Settings sections"
+        idBase="settings"
+      />
+
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5 pb-8 [scrollbar-gutter:stable] md:px-6">
+        <div className="w-full max-w-4xl space-y-3">
+          {activeSettingsTab === "recording" && (
+            <>
           <SettingsSection title="Capture" icon={<Monitor className="h-4 w-4" />}>
             <div className="space-y-4">
               <div>
@@ -584,10 +607,7 @@ export function Settings() {
                   ariaDescribedBy="settings-video-encoder-help"
                 />
                 <p id="settings-video-encoder-help" className="mt-1 text-xs text-neutral-400">
-                  Auto picks the best available encoder. Hardware encoders usually reduce in-game stutter.
-                </p>
-                <p className="mt-1 text-xs text-neutral-400">
-                  Quality controls file size; encoder choice controls performance impact.
+                  Auto picks a hardware encoder when one is available.
                 </p>
                 {videoEncodersError && (
                   <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-amber-200">
@@ -602,8 +622,7 @@ export function Settings() {
           <SettingsSection title="Audio" icon={<Volume2 className="h-4 w-4" />}>
             <div className="space-y-4">
               <p className="text-sm text-neutral-400">
-                Include game audio in your recordings. WoW only uses Windows process loopback so
-                Discord and the browser stay out of the VOD.
+                WoW only keeps Discord and the browser out of the VOD.
               </p>
 
               <SettingsToggleField
@@ -679,7 +698,11 @@ export function Settings() {
               </FormField>
             </div>
           </SettingsSection>
+            </>
+          )}
 
+          {activeSettingsTab === "combat" && (
+            <>
           <SettingsSection title="Automation & Combat Log" icon={<CheckCircle2 className="h-4 w-4" />}>
             <div className="space-y-4">
               <SettingsToggleField
@@ -692,7 +715,7 @@ export function Settings() {
                   });
                 }}
                 label="Enable Auto Recording"
-                description="Start recordings automatically when M+, raid, or PvP combat begins."
+                description="Start automatically when M+, raid, or PvP combat begins."
               />
 
               <FormField
@@ -730,10 +753,8 @@ export function Settings() {
                   onBrowse={handleBrowseWowFolder}
                 />
                 <p className="mt-2 text-xs text-neutral-400">
-                  Select your WoW client folder or its{" "}
-                  <span className="font-mono">Logs</span> directory. FloorPoV watches for{" "}
-                  <span className="font-mono">WoWCombatLog*.txt</span> and attaches when Archon
-                  creates the file.
+                  WoW client or its Logs folder. FloorPoV watches for{" "}
+                  <span className="font-mono">WoWCombatLog*.txt</span>.
                 </p>
                 {formData.wowFolder && isWowFolderValid && (
                   <p className="mt-2 inline-flex items-center gap-1.5 rounded-sm border border-emerald-300/30 bg-emerald-500/12 px-2 py-1 text-xs text-emerald-100">
@@ -767,12 +788,16 @@ export function Settings() {
                   ariaDescribedBy="settings-marker-hotkey-help"
                 />
                 <p id="settings-marker-hotkey-help" className="mt-1 text-xs text-neutral-400">
-                  Press this key during recording to add a marker. If it conflicts, choose another key.
+                  Press this key during recording to add a marker.
                 </p>
               </div>
             </div>
           </SettingsSection>
+            </>
+          )}
 
+          {activeSettingsTab === "app" && (
+            <>
           <SettingsSection title="App" icon={<AppWindow className="h-4 w-4" />}>
             <div className="space-y-4">
               <SettingsToggleField
@@ -785,7 +810,7 @@ export function Settings() {
                   });
                 }}
                 label="Start Minimized to Tray"
-                description="Launch in the tray on boot and when you open the app. Click the tray icon to show the window. The X button always hides to the tray; quit from the tray icon."
+                description="Launch in the tray. The X button hides the window; quit from the tray icon."
               />
               <SettingsToggleField
                 id={FIELD_IDS.showFullscreenEventsPanel}
@@ -797,7 +822,7 @@ export function Settings() {
                   });
                 }}
                 label="Show Events in Fullscreen"
-                description="In fullscreen playback, keep a retractable Events tab for combat-log markers. The tab starts collapsed."
+                description="Keep a retractable Events tab in fullscreen playback."
               />
             </div>
           </SettingsSection>
@@ -814,7 +839,7 @@ export function Settings() {
                   });
                 }}
                 label="Enable Auto Updates"
-                description="On launch, download updates from this fork's GitHub releases. The official FloorPoV updater cannot replace this build."
+                description="On launch, download updates from this fork's GitHub releases."
               />
               <div className="flex flex-wrap items-center gap-3">
                 <Button
@@ -850,9 +875,11 @@ export function Settings() {
                 });
               }}
               label="Enable Recording Diagnostics"
-              description="Write per-second audio and FFmpeg pacing logs for stutter or crackle debugging."
+              description="Write per-second audio and FFmpeg pacing logs for stutter debugging."
             />
           </SettingsSection>
+            </>
+          )}
         </div>
       </div>
 

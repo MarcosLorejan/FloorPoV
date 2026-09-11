@@ -323,7 +323,7 @@ export function RecordingsList({
       animate="animate"
       transition={smoothTransition}
     >
-      <div className="mb-2.5 flex items-center justify-between pr-2">
+      <div className="mb-2 flex items-center justify-between gap-2 pr-2">
         <div>
           <h2 className="inline-flex items-center gap-2 text-sm font-medium text-neutral-100">
             <Film className="h-4 w-4 text-neutral-300" />
@@ -333,6 +333,17 @@ export function RecordingsList({
             <p className="mt-1 text-xs text-neutral-400">{description}</p>
           )}
         </div>
+        <motion.button
+          type="button"
+          onClick={loadRecordings}
+          disabled={isLoading || !settings.outputFolder}
+          className="inline-flex h-7 items-center gap-1 rounded-sm border border-white/20 bg-black/20 px-2 text-xs text-neutral-200 transition-colors hover:bg-white/10 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-50"
+          whileHover={reduceMotion ? undefined : { y: -1 }}
+          whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+        >
+          <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
+          Refresh
+        </motion.button>
       </div>
 
       {displayError && <p className="mb-2 text-xs text-red-300" role="status">{displayError}</p>}
@@ -342,11 +353,14 @@ export function RecordingsList({
         aria-busy={isLoading}
       >
         {!settings.outputFolder ? (
-          <p className="text-xs text-neutral-400">Select an output folder to browse recordings.</p>
-        ) : filteredRecordings.length === 0 && !isLoading ? (
-          <p className="text-xs text-neutral-400">
-            {`No recordings found in ${settings.outputFolder}`}
+          <p className="px-1 py-6 text-sm text-neutral-400">
+            Choose an output folder in Settings to see recordings here.
           </p>
+        ) : filteredRecordings.length === 0 && !isLoading ? (
+          <div className="px-1 py-6">
+            <p className="text-sm text-neutral-300">No recordings in this folder yet</p>
+            <p className="mt-1 text-xs text-neutral-500">{settings.outputFolder}</p>
+          </div>
         ) : (
           <>
             <div className="mb-1 flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
@@ -371,41 +385,28 @@ export function RecordingsList({
                 </span>
               </div>
 
-              <div className="flex items-center gap-1">
-                {selectedRecordingCount > 0 && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={clearSelection}
-                      disabled={isActionLocked}
-                      className="inline-flex h-6 items-center gap-1 rounded-sm border border-white/20 bg-black/20 px-2 text-xs text-neutral-200 transition-colors hover:bg-white/10 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <XCircle className="h-3.5 w-3.5 shrink-0" />
-                      Clear
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDeleteSelectedRecordings}
-                      disabled={isActionLocked || selectedRecordings.length === 0}
-                      className="inline-flex h-6 items-center gap-1 rounded-sm border border-rose-300/35 bg-rose-500/14 px-2 text-xs font-medium text-rose-100 transition-colors hover:bg-rose-500/22 hover:text-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 shrink-0" />
-                      Delete selected
-                    </button>
-                  </>
-                )}
-                <motion.button
-                  type="button"
-                  onClick={loadRecordings}
-                  disabled={isLoading || !settings.outputFolder}
-                  className="inline-flex h-6 items-center gap-1 rounded-sm border border-white/20 bg-black/20 px-2 text-xs text-neutral-200 transition-colors hover:bg-white/10 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-50"
-                  whileHover={reduceMotion ? undefined : { y: -1 }}
-                  whileTap={reduceMotion ? undefined : { scale: 0.98 }}
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
-                  Refresh
-                </motion.button>
-              </div>
+              {selectedRecordingCount > 0 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    disabled={isActionLocked}
+                    className="inline-flex h-6 items-center gap-1 rounded-sm border border-white/20 bg-black/20 px-2 text-xs text-neutral-200 transition-colors hover:bg-white/10 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <XCircle className="h-3.5 w-3.5 shrink-0" />
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteSelectedRecordings}
+                    disabled={isActionLocked || selectedRecordings.length === 0}
+                    className="inline-flex h-6 items-center gap-1 rounded-sm border border-rose-300/35 bg-rose-500/14 px-2 text-xs font-medium text-rose-100 transition-colors hover:bg-rose-500/22 hover:text-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                    Delete selected
+                  </button>
+                </div>
+              )}
             </div>
 
             <ul className="space-y-1" role="list">

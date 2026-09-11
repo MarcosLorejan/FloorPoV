@@ -630,7 +630,7 @@ export function VideoPlayer() {
             <div className="mb-3 rounded-full border border-white/20 bg-white/5 p-2">
               <Clapperboard className="h-5 w-5 text-neutral-200" />
             </div>
-            <p className="text-neutral-400">No recording loaded</p>
+            <p className="mt-1 text-sm text-neutral-200">Select a recording below</p>
           </>
         </div>
       )}

@@ -4,9 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { TitleBar } from "./TitleBar";
 import { Sidebar } from "./Sidebar";
 import { GameModePage } from "../gamemodes/GameModePage";
-import { PlaybackEventList } from "../events/PlaybackEventList";
-import { VideoPlayer } from "../playback/VideoPlayer";
-import { RecordingsList } from "../playback/RecordingsList";
+import { HomePage } from "../playback/HomePage";
 import { Settings } from "../settings/Settings";
 import { CombatLogDebug } from "../debug/CombatLogDebug";
 import { WarcraftLogsUploadPage } from "../warcraftlogs/WarcraftLogsUploadPage";
@@ -17,7 +15,6 @@ import { MarkerProvider } from "../../contexts/MarkerContext";
 import { WclUploadProvider } from "../../contexts/WclUploadContext";
 import { panelVariants, smoothTransition } from "../../lib/motion";
 import { installAvailableAppUpdate } from "../../services/app-updater";
-import { MEDIA_SECTION_RESIZE_DELTA } from "../../types/settings";
 import { type AppView } from "../../types/ui";
 
 export type { AppView };
@@ -30,20 +27,8 @@ function LayoutContent() {
   const [currentView, setCurrentView] = useState<AppView>("main");
   const [gameModeNavigationVersion, setGameModeNavigationVersion] = useState(0);
   const [isDebugBuild, setIsDebugBuild] = useState(false);
-  const [isResizingMedia, setIsResizingMedia] = useState(false);
   const [autoUpdateBannerText, setAutoUpdateBannerText] = useState<string | null>(null);
-  const [mediaSectionHeight, setMediaSectionHeight] = useState(() =>
-    typeof window === "undefined" ? 520 : Math.round(window.innerHeight * 0.52),
-  );
   const reduceMotion = useReducedMotion();
-  const mediaSectionMaxHeight =
-    typeof window === "undefined" ? 320 : Math.max(320, Math.round(window.innerHeight * 0.66));
-
-  const clampMediaSectionHeight = (height: number, viewportHeight: number) => {
-    const minHeight = 320;
-    const maxHeight = Math.max(minHeight, Math.round(viewportHeight * 0.66));
-    return Math.min(maxHeight, Math.max(minHeight, height));
-  };
 
   useEffect(() => {
     const loadDebugFlag = async () => {
@@ -64,20 +49,6 @@ function LayoutContent() {
       setCurrentView("main");
     }
   }, [currentView, isDebugBuild]);
-
-  useEffect(() => {
-    const handleWindowResize = () => {
-      setMediaSectionHeight((currentHeight) =>
-        clampMediaSectionHeight(currentHeight, window.innerHeight),
-      );
-    };
-
-    handleWindowResize();
-    window.addEventListener("resize", handleWindowResize);
-    return () => {
-      window.removeEventListener("resize", handleWindowResize);
-    };
-  }, []);
 
   useEffect(() => {
     if (!isTauri() || isSettingsLoading || !settings.enableAutoUpdate || hasAttemptedAutoUpdateRef.current) {
@@ -121,37 +92,6 @@ function LayoutContent() {
     };
   }, [isSettingsLoading, settings.enableAutoUpdate]);
 
-  const handleMediaResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsResizingMedia(true);
-
-    const startY = event.clientY;
-    const startHeight = mediaSectionHeight;
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      const deltaY = moveEvent.clientY - startY;
-      const targetHeight = startHeight + deltaY;
-      setMediaSectionHeight(clampMediaSectionHeight(targetHeight, window.innerHeight));
-    };
-
-    const handlePointerEnd = () => {
-      setIsResizingMedia(false);
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerEnd);
-      window.removeEventListener("pointercancel", handlePointerEnd);
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerEnd);
-    window.addEventListener("pointercancel", handlePointerEnd);
-  };
-
-  const adjustMediaSectionHeight = (delta: number) => {
-    setMediaSectionHeight((currentHeight) => {
-      return clampMediaSectionHeight(currentHeight + delta, window.innerHeight);
-    });
-  };
-
   const handleNavigate = (view: AppView) => {
     setCurrentView(view);
 
@@ -180,54 +120,7 @@ function LayoutContent() {
         />
         <AnimatePresence mode="wait" initial={false}>
           {currentView === "main" ? (
-            <motion.div
-              key="main-view"
-              className={`flex-1 flex flex-col min-w-0 rounded-sm border border-white/10 bg-(--surface-1) shadow-(--surface-glow) overflow-hidden ${isResizingMedia ? "select-none" : ""}`}
-              variants={panelVariants}
-              initial={reduceMotion ? false : "initial"}
-              animate="animate"
-              exit={reduceMotion ? undefined : "exit"}
-              transition={smoothTransition}
-            >
-              <section
-                className="flex w-full shrink-0 overflow-hidden"
-                style={{ height: mediaSectionHeight }}
-              >
-                <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-neutral-950/70">
-                  <VideoPlayer />
-                </main>
-                <PlaybackEventList />
-              </section>
-              <div
-                className={`flex h-3 w-full cursor-row-resize items-center justify-center border-y border-white/10 bg-(--surface-2) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 ${
-                  isResizingMedia ? "bg-white/10" : "hover:bg-white/5"
-                }`}
-                onPointerDown={handleMediaResizeStart}
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowUp") {
-                    event.preventDefault();
-                    adjustMediaSectionHeight(-MEDIA_SECTION_RESIZE_DELTA);
-                    return;
-                  }
-
-                  if (event.key === "ArrowDown") {
-                    event.preventDefault();
-                    adjustMediaSectionHeight(MEDIA_SECTION_RESIZE_DELTA);
-                  }
-                }}
-                role="separator"
-                aria-orientation="horizontal"
-                aria-label="Resize media section"
-                aria-valuemin={320}
-                aria-valuenow={mediaSectionHeight}
-                aria-valuemax={mediaSectionMaxHeight}
-                aria-valuetext={`${mediaSectionHeight}px`}
-                tabIndex={0}
-              >
-                <div className="h-0.5 w-24 rounded-full bg-white/35" />
-              </div>
-              <RecordingsList />
-            </motion.div>
+            <HomePage key="main-view" />
           ) : currentView === "settings" ? (
             <motion.div
               key="settings-view"

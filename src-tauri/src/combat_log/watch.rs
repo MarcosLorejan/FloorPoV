@@ -476,20 +476,14 @@ async fn watch_combat_log(
 
                 if let Some(latest_log_path) = find_latest_combat_log_in_directory(&logs_directory)?
                 {
-                    let switched = match current_log_path.as_ref() {
-                        None => true,
-                        Some(current) => current != &latest_log_path,
-                    };
-                    if switched {
-                        current_log_path = Some(latest_log_path.clone());
-                        file_offset = 0;
-                        emit_combat_watch_status(
-                            &app_handle,
-                            "info",
-                            "Combatlog watcher active!",
-                            Some(&latest_log_path),
-                        );
-                    }
+                    apply_latest_combat_log_path(
+                        &app_handle,
+                        &mut current_log_path,
+                        &mut file_offset,
+                        latest_log_path,
+                        start_time,
+                        &metadata_accumulator,
+                    )?;
                 }
 
                 if let Some(log_path) = current_log_path.as_ref() {
@@ -510,6 +504,62 @@ async fn watch_combat_log(
         }
     }
 
+    Ok(())
+}
+
+fn apply_latest_combat_log_path(
+    app_handle: &AppHandle,
+    current_log_path: &mut Option<PathBuf>,
+    file_offset: &mut u64,
+    latest_log_path: PathBuf,
+    start_time: Instant,
+    metadata_accumulator: &Arc<Mutex<RecordingMetadataAccumulator>>,
+) -> Result<(), String> {
+    let switched = match current_log_path.as_ref() {
+        None => true,
+        Some(current) => current != &latest_log_path,
+    };
+    if !switched {
+        return Ok(());
+    }
+
+    if let Some(old_log_path) = current_log_path.as_ref() {
+        if let Err(error) = read_and_emit_new_events(
+            app_handle,
+            old_log_path,
+            file_offset,
+            start_time,
+            metadata_accumulator,
+        ) {
+            tracing::warn!(
+                old_log = %old_log_path.display(),
+                "Failed to drain combat log before switching files: {error}"
+            );
+        }
+
+        let abandoned_end = {
+            let mut accumulator = metadata_accumulator
+                .lock()
+                .map_err(|error| error.to_string())?;
+            accumulator.take_abandoned_auto_session_end_trigger()
+        };
+        if let Some(trigger_event) = abandoned_end {
+            tracing::info!(
+                mode = %trigger_event.mode,
+                "Combat log rotated while an auto session was still active; emitting end trigger"
+            );
+            emit_combat_trigger_event(app_handle, &trigger_event);
+        }
+    }
+
+    *current_log_path = Some(latest_log_path.clone());
+    *file_offset = 0;
+    emit_combat_watch_status(
+        app_handle,
+        "info",
+        "Combatlog watcher active!",
+        Some(&latest_log_path),
+    );
     Ok(())
 }
 

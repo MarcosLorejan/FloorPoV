@@ -40,6 +40,11 @@ pub fn list_capture_windows() -> Result<Vec<model::CaptureWindowInfo>, String> {
 }
 
 #[tauri::command]
+pub fn is_wow_process_running() -> bool {
+    audio_pipeline::is_wow_process_running()
+}
+
+#[tauri::command]
 pub fn get_available_video_encoders(
     app_handle: AppHandle,
 ) -> Result<Vec<model::AvailableVideoEncoder>, String> {

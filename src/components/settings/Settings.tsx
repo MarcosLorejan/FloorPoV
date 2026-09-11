@@ -92,6 +92,7 @@ const FIELD_IDS = {
   minAutoRaidRecordingSeconds: "settings-min-auto-raid-recording-seconds",
   enableAutoUpdate: "settings-enable-auto-update",
   startMinimized: "settings-start-minimized",
+  showFullscreenEventsPanel: "settings-show-fullscreen-events-panel",
 };
 
 
@@ -785,6 +786,18 @@ export function Settings() {
                 }}
                 label="Start Minimized to Tray"
                 description="Launch in the tray on boot and when you open the app. Click the tray icon to show the window. The X button always hides to the tray; quit from the tray icon."
+              />
+              <SettingsToggleField
+                id={FIELD_IDS.showFullscreenEventsPanel}
+                checked={formData.showFullscreenEventsPanel}
+                onChange={(checked) => {
+                  setFormData({
+                    ...formData,
+                    showFullscreenEventsPanel: checked,
+                  });
+                }}
+                label="Show Events in Fullscreen"
+                description="In fullscreen playback, keep a retractable Events tab for combat-log markers. The tab starts collapsed."
               />
             </div>
           </SettingsSection>

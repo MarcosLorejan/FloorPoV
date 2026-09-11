@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
   Clapperboard,
+  ListVideo,
   LoaderCircle,
   Maximize,
+  Minimize,
   Pause,
   Play,
   Volume2,
@@ -14,15 +16,20 @@ import {
 import { useVideo } from "../../contexts/VideoContext";
 import { useRecording } from "../../contexts/RecordingContext";
 import { useMarker } from "../../contexts/MarkerContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import { EventMarker } from "../events/EventMarker";
 import { EventTooltip } from "../events/EventTooltip";
+import { PlaybackEventList } from "../events/PlaybackEventList";
 import { ControlIconButton } from "./ControlIconButton";
 import { EVENT_SEEK_OFFSET_SECONDS, isVideoSeekBarEvent, type GameEvent } from "../../types/events";
 import { formatTime } from "../../utils/format";
+import { smoothTransition } from "../../lib/motion";
 
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 const FINE_SEEK_SECONDS = 1;
 const COARSE_SEEK_SECONDS = 5;
+const FULLSCREEN_EVENTS_PANEL_WIDTH_PX = 320;
+const FULLSCREEN_EVENTS_PANEL_ID = "fullscreen-events-panel";
 
 export function VideoPlayer() {
   const {
@@ -46,6 +53,8 @@ export function VideoPlayer() {
 
   const { isRecording, recordingWarning } = useRecording();
   const { filteredEvents } = useMarker();
+  const { settings } = useSettings();
+  const reduceMotion = useReducedMotion();
 
   const inlineSurfaceHostRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
@@ -55,9 +64,15 @@ export function VideoPlayer() {
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [volumeBeforeMute, setVolumeBeforeMute] = useState(1);
   const [isImmersiveMode, setIsImmersiveMode] = useState(false);
+  const [isImmersiveLayerActive, setIsImmersiveLayerActive] = useState(false);
+  const [isFullscreenEventsOpen, setIsFullscreenEventsOpen] = useState(false);
   const [inlineSurfaceRect, setInlineSurfaceRect] = useState({ left: 0, top: 0, width: 0, height: 0 });
   const [videoNativeSize, setVideoNativeSize] = useState({ width: 0, height: 0 });
   const [devicePixelRatio, setDevicePixelRatio] = useState(() => window.devicePixelRatio || 1);
+  const [viewportSize, setViewportSize] = useState(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }));
   const [immersiveViewportSize, setImmersiveViewportSize] = useState({ width: 0, height: 0 });
   const [hoveredSeekBarEvent, setHoveredSeekBarEvent] = useState<GameEvent | null>(null);
   const [seekBarTooltipX, setSeekBarTooltipX] = useState(0);
@@ -65,20 +80,20 @@ export function VideoPlayer() {
   const [hoverPreview, setHoverPreview] = useState<{ time: number; x: number } | null>(null);
 
   const showVideo = Boolean(videoSrc) && !isRecording;
+  const canShowFullscreenEvents = isImmersiveMode && showVideo && settings.showFullscreenEventsPanel;
   const toggleImmersiveMode = () => {
     setIsImmersiveMode((currentValue) => !currentValue);
   };
+  const toggleFullscreenEventsPanel = () => {
+    setIsFullscreenEventsOpen((currentValue) => !currentValue);
+  };
 
-  const inlineSurfaceStyle: CSSProperties | undefined = isImmersiveMode
-    ? undefined
-    : inlineSurfaceRect.width > 0 && inlineSurfaceRect.height > 0
-      ? {
-          left: `${inlineSurfaceRect.left}px`,
-          top: `${inlineSurfaceRect.top}px`,
-          width: `${inlineSurfaceRect.width}px`,
-          height: `${inlineSurfaceRect.height}px`,
-        }
-      : { visibility: "hidden" };
+  const hasInlineSurfaceRect = inlineSurfaceRect.width > 0 && inlineSurfaceRect.height > 0;
+  const surfacePosition = isImmersiveMode
+    ? { left: 0, top: 0, width: viewportSize.width, height: viewportSize.height }
+    : hasInlineSurfaceRect
+      ? inlineSurfaceRect
+      : null;
 
   const handleVolumeToggle = () => {
     if (volume === 0) {
@@ -122,8 +137,8 @@ export function VideoPlayer() {
     isImmersiveMode && immersiveVideoStyle?.width
       ? { width: immersiveVideoStyle.width }
       : undefined;
-  const playerSurfaceClassName = isImmersiveMode
-    ? "fixed inset-0 z-[200] flex items-center justify-center overflow-hidden bg-neutral-950"
+  const playerSurfaceClassName = isImmersiveLayerActive
+    ? "fixed z-[200] flex items-center justify-center overflow-hidden bg-neutral-950"
     : "fixed z-40 overflow-hidden bg-neutral-950/90";
 
   useEffect(() => {
@@ -157,16 +172,53 @@ export function VideoPlayer() {
     }
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsImmersiveMode(false);
+      if (event.key !== "Escape") {
+        return;
       }
+
+      if (showSpeedMenu) {
+        return;
+      }
+
+      if (isFullscreenEventsOpen) {
+        setIsFullscreenEventsOpen(false);
+        return;
+      }
+
+      setIsImmersiveMode(false);
     };
 
     window.addEventListener("keydown", handleEscape);
     return () => {
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [isImmersiveMode]);
+  }, [isFullscreenEventsOpen, isImmersiveMode, showSpeedMenu]);
+
+  useEffect(() => {
+    if (isImmersiveMode) {
+      setIsImmersiveLayerActive(true);
+      return;
+    }
+
+    if (reduceMotion) {
+      setIsImmersiveLayerActive(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIsImmersiveLayerActive(false);
+    }, smoothTransition.duration * 1000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isImmersiveMode, reduceMotion]);
+
+  useEffect(() => {
+    if (!canShowFullscreenEvents) {
+      setIsFullscreenEventsOpen(false);
+    }
+  }, [canShowFullscreenEvents]);
 
   useEffect(() => {
     if (!showVideo) {
@@ -259,6 +311,10 @@ export function VideoPlayer() {
   useEffect(() => {
     const handleResize = () => {
       setDevicePixelRatio(window.devicePixelRatio || 1);
+      setViewportSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
     };
 
     window.addEventListener("resize", handleResize);
@@ -393,10 +449,22 @@ export function VideoPlayer() {
   };
 
   const playerSurface = (
-    <div
+    <motion.div
       ref={immersiveSurfaceRef}
       className={playerSurfaceClassName}
-      style={inlineSurfaceStyle}
+      initial={false}
+      animate={
+        surfacePosition
+          ? {
+              left: surfacePosition.left,
+              top: surfacePosition.top,
+              width: surfacePosition.width,
+              height: surfacePosition.height,
+            }
+          : undefined
+      }
+      style={surfacePosition ? undefined : { visibility: "hidden" }}
+      transition={reduceMotion ? { duration: 0 } : smoothTransition}
       aria-busy={isVideoLoading}
     >
       {showVideo && (
@@ -700,17 +768,64 @@ export function VideoPlayer() {
                 )}
               </div>
 
+              {canShowFullscreenEvents && (
+                <ControlIconButton
+                  label={isFullscreenEventsOpen ? "Hide events" : "Show events"}
+                  onClick={toggleFullscreenEventsPanel}
+                  pressed={isFullscreenEventsOpen}
+                  controls={FULLSCREEN_EVENTS_PANEL_ID}
+                >
+                  <ListVideo className="w-5 h-5" />
+                </ControlIconButton>
+              )}
+
               <ControlIconButton
                 label={isImmersiveMode ? "Exit fullscreen" : "Toggle fullscreen"}
                 onClick={toggleImmersiveMode}
               >
-                <Maximize className="w-5 h-5" />
+                {isImmersiveMode ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
               </ControlIconButton>
             </div>
           </div>
         </div>
       )}
-    </div>
+
+      {canShowFullscreenEvents && (
+        <div className="absolute inset-y-0 right-0 z-[210] flex">
+          <motion.div
+            className="ml-auto flex h-full"
+            initial={false}
+            animate={{ x: isFullscreenEventsOpen ? 0 : FULLSCREEN_EVENTS_PANEL_WIDTH_PX }}
+            transition={reduceMotion ? { duration: 0 } : smoothTransition}
+          >
+            <button
+              type="button"
+              className="mt-[28vh] flex h-fit flex-col items-center gap-2 rounded-l-sm border border-r-0 border-white/15 bg-neutral-950/90 px-1.5 py-3 text-neutral-200 transition-colors hover:bg-neutral-900 hover:text-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
+              onClick={toggleFullscreenEventsPanel}
+              aria-expanded={isFullscreenEventsOpen}
+              aria-controls={FULLSCREEN_EVENTS_PANEL_ID}
+            >
+              <ListVideo className="h-3.5 w-3.5" />
+              <span
+                className="text-[11px] font-medium uppercase tracking-[0.14em]"
+                style={{ writingMode: "vertical-rl" }}
+              >
+                Events
+              </span>
+            </button>
+            <div
+              id={FULLSCREEN_EVENTS_PANEL_ID}
+              className="h-full"
+              style={{ width: FULLSCREEN_EVENTS_PANEL_WIDTH_PX }}
+              inert={!isFullscreenEventsOpen}
+              aria-hidden={!isFullscreenEventsOpen}
+            >
+              <PlaybackEventList variant="overlay" />
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </motion.div>
   );
 
   return (

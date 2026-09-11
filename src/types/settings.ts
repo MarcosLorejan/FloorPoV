@@ -22,6 +22,7 @@ export interface RecordingSettings {
   minAutoRaidRecordingSeconds: number;
   enableAutoUpdate: boolean;
   startMinimized: boolean;
+  showFullscreenEventsPanel: boolean;
   markerHotkey: MarkerHotkey;
 }
 
@@ -42,6 +43,7 @@ export const DEFAULT_SETTINGS: RecordingSettings = {
   minAutoRaidRecordingSeconds: 25,
   enableAutoUpdate: true,
   startMinimized: true,
+  showFullscreenEventsPanel: true,
   markerHotkey: 'F9',
 };
 

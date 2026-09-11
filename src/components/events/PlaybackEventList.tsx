@@ -44,12 +44,17 @@ function getEventListDetail(event: GameEvent): string {
   return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
 }
 
-export function PlaybackEventList() {
+interface PlaybackEventListProps {
+  variant?: "sidebar" | "overlay";
+}
+
+export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProps) {
   const { currentTime, seek, videoSrc } = useVideo();
   const { isRecording } = useRecording();
   const { events, filteredEvents } = useMarker();
   const listEvents = useMemo(() => filteredEvents.filter(isVideoSeekBarEvent), [filteredEvents]);
   const hasTimelineEvents = events.some(isVideoSeekBarEvent);
+  const isOverlay = variant === "overlay";
 
   const activeEventId = useMemo(() => {
     let activeId: string | null = null;
@@ -71,7 +76,13 @@ export function PlaybackEventList() {
   };
 
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-l border-white/10 bg-(--surface-2)">
+    <aside
+      className={
+        isOverlay
+          ? "flex h-full w-full flex-col border-l border-white/10 bg-neutral-950/92 backdrop-blur-sm"
+          : "flex h-full w-72 shrink-0 flex-col border-l border-white/10 bg-(--surface-2)"
+      }
+    >
       <div className="flex flex-col gap-2 border-b border-white/10 px-3 py-2">
         <div className="flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-neutral-400">
           <ListVideo className="h-3.5 w-3.5 text-neutral-300" />

@@ -1,4 +1,5 @@
 pub(crate) mod debug;
+pub(crate) mod import;
 pub(crate) mod metadata;
 pub(crate) mod parse;
 pub(crate) mod watch;

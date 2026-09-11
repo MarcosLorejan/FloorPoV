@@ -22,7 +22,7 @@
 
 ### Combat Log Parsing
 
-- [ ] Real combat log file import (.txt)
+- [x] Real combat log file import (.txt)
 - [ ] Combat log parsing from live recording
 - [ ] Support for different game modes:
   - Mythic+ (dungeon tracking, keystone level)

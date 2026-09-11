@@ -32,7 +32,7 @@
 ### UI/UX
 
 - [ ] Multiple video comparison view
-- [ ] Export analysis report
+- [x] Export analysis report
 - [ ] Custom event markers
 - [ ] Keyboard shortcuts
 - [ ] Dark/light theme toggle

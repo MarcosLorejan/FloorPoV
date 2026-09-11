@@ -47,6 +47,7 @@ export interface RecordingMetadata {
   importantEventCounts?: Record<string, number>;
   importantEventsDroppedCount?: number;
   players?: RecordingPlayerMetadata[];
+  capturedAtUnix?: number;
 }
 
 export interface CombatEvent {

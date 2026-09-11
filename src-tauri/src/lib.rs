@@ -130,6 +130,7 @@ pub fn run() {
             settings::get_folder_size,
             settings::get_recordings_list,
             settings::get_recording_metadata,
+            settings::write_export_file,
             settings::delete_recording,
             settings::cleanup_old_recordings,
             combat_log::watch::start_combat_watch,

@@ -11,8 +11,11 @@ import { panelVariants, smoothTransition } from '../../lib/motion';
 import { RecordingInfo } from '../../types/recording';
 import { type GameMode } from '../../types/ui';
 import { formatBytes, formatDate } from '../../utils/format';
+import { filterRecordingsBySearchQuery } from '../../utils/recording-search';
 import { getRecordingDisplayTitle, isRecordingInGameMode } from '../../utils/recording-title';
 import { DeleteConfirmDialog } from '../ui/DeleteConfirmDialog';
+import { FormField } from '../ui/FormField';
+import { Input } from '../ui/Input';
 import { useRecordingSelection } from './useRecordingSelection';
 
 interface RecordingsListProps {
@@ -93,6 +96,7 @@ export function RecordingsList({
   const reduceMotion = useReducedMotion();
   const { recordings, isLoading, error: listError, loadRecordings, setRecordings } = useRecordingsList();
   useClearStalePlayback(recordings, !isLoading && !listError);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loadingRecordingPath, setLoadingRecordingPath] = useState<string | null>(null);
   const [deletingRecordingPaths, setDeletingRecordingPaths] = useState<string[]>([]);
   const [pendingDeleteRecordings, setPendingDeleteRecordings] = useState<RecordingInfo[]>([]);
@@ -112,13 +116,16 @@ export function RecordingsList({
     isDeletingRecordings ||
     hasPendingDeleteRecordings ||
     isVideoLoading;
-  const filteredRecordings = useMemo(() => {
+  const scopedRecordings = useMemo(() => {
     if (!gameModeContext) {
       return recordings;
     }
 
     return recordings.filter((recording) => isRecordingInGameMode(recording, gameModeContext));
   }, [gameModeContext, recordings]);
+  const filteredRecordings = useMemo(() => {
+    return filterRecordingsBySearchQuery(scopedRecordings, searchQuery, gameModeContext);
+  }, [gameModeContext, scopedRecordings, searchQuery]);
 
   const handleLoadRecording = useCallback(async (recording: RecordingInfo) => {
     if (isRecording || loadingRecordingPath || isDeletingRecordings || isVideoLoading) {
@@ -346,6 +353,19 @@ export function RecordingsList({
         </motion.button>
       </div>
 
+      {settings.outputFolder && (
+        <FormField id="library-recordings-search" label="Search" className="mb-2">
+          <Input
+            id="library-recordings-search"
+            type="search"
+            variant="filter"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search by title, zone, encounter, or file name"
+          />
+        </FormField>
+      )}
+
       {displayError && <p className="mb-2 text-xs text-red-300" role="status">{displayError}</p>}
 
       <div
@@ -356,10 +376,17 @@ export function RecordingsList({
           <p className="px-1 py-6 text-sm text-neutral-400">
             Choose an output folder in Settings to see recordings here.
           </p>
-        ) : filteredRecordings.length === 0 && !isLoading ? (
+        ) : scopedRecordings.length === 0 && !isLoading ? (
           <div className="px-1 py-6">
             <p className="text-sm text-neutral-300">No recordings in this folder yet</p>
             <p className="mt-1 text-xs text-neutral-500">{settings.outputFolder}</p>
+          </div>
+        ) : filteredRecordings.length === 0 && !isLoading ? (
+          <div className="px-1 py-6">
+            <p className="text-sm text-neutral-300">No recordings match your search</p>
+            <p className="mt-1 text-xs text-neutral-500">
+              Try a different title, zone, encounter, or file name.
+            </p>
           </div>
         ) : (
           <>

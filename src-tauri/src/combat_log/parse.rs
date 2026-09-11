@@ -347,10 +347,11 @@ fn is_encounter_relevant_boss(
 }
 
 fn is_multi_boss_encounter(encounter_name: &str) -> bool {
+    // Match official council-style encounter titles only. Do not treat every
+    // "X and Y" name as "all NPCs are bosses" — named bosses already match via
+    // names_are_encounter_related after "and"/"&" split into words.
     let lower = encounter_name.to_ascii_lowercase();
-    lower.contains(" and ")
-        || lower.contains(" & ")
-        || lower.contains("twins")
+    lower.contains("twins")
         || name_ends_with_word(&lower, "council")
         || name_ends_with_word(&lower, "court")
         || name_ends_with_word(&lower, "assembly")

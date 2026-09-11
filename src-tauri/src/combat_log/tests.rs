@@ -388,6 +388,64 @@ fn records_vehicle_boss_ability_during_encounter() {
 }
 
 #[test]
+fn records_named_bosses_in_and_encounter_but_ignores_adds() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+    accumulator.consume_combat_log_line(
+        &build_line("ENCOUNTER_START", &["1", "\"Hans'gar and Franzok\"", "16"]),
+        1.0,
+    );
+
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Creature-0-0-0-0-2005-0000000000",
+            "Hans'gar",
+            "0x10a48",
+            "160838",
+            "Body Slam",
+        ),
+        8.0,
+    );
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Creature-0-0-0-0-2006-0000000000",
+            "Franzok",
+            "0x10a48",
+            "155818",
+            "Scorching Breath",
+        ),
+        10.0,
+    );
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Creature-0-0-0-0-2007-0000000000",
+            "Blackrock Enforcer",
+            "0x10a48",
+            "155603",
+            "Cinder Toss",
+        ),
+        12.0,
+    );
+
+    let snapshot = accumulator.snapshot();
+    let boss_abilities: Vec<_> = snapshot
+        .important_events
+        .iter()
+        .filter(|event| event.event_type == "BOSS_ABILITY")
+        .collect();
+
+    assert_eq!(boss_abilities.len(), 2);
+    assert_eq!(boss_abilities[0].source.as_deref(), Some("Hans'gar"));
+    assert_eq!(boss_abilities[1].source.as_deref(), Some("Franzok"));
+    assert!(
+        boss_abilities
+            .iter()
+            .all(|event| event.source.as_deref() != Some("Blackrock Enforcer")),
+        "adds in an 'X and Y' encounter must not become boss abilities"
+    );
+}
+
+#[test]
 fn records_council_member_ability_for_multi_boss_encounter() {
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.begin_recording_session(0.0);

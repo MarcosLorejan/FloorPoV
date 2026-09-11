@@ -1458,3 +1458,190 @@ fn idle_recording_does_not_emit_abandoned_end() {
         .take_abandoned_auto_session_end_trigger()
         .is_none());
 }
+
+#[test]
+fn new_key_start_still_emits_start_while_already_in_challenge_mode() {
+    let mut context = super::parse::DebugParseContext::default();
+    parse_important_combat_event(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        &mut context,
+    )
+    .expect("first challenge start should parse");
+
+    let second_start = parse_important_combat_event(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Ruby Life Pools\"", "2521", "402", "14"],
+        ),
+        &mut context,
+    )
+    .expect("second challenge start should parse");
+    let start_trigger = extract_combat_trigger_event(&second_start)
+        .expect("a new key must still emit a start trigger while recording");
+    assert_eq!(start_trigger.trigger_type, "start");
+    assert_eq!(start_trigger.mode, "mythicPlus");
+    assert_eq!(start_trigger.key_level, Some(14));
+}
+
+#[test]
+fn zone_change_does_not_emit_auto_record_triggers() {
+    let mut context = super::parse::DebugParseContext::default();
+    parse_important_combat_event(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        &mut context,
+    );
+
+    let zone_event = parse_important_combat_event(
+        &build_line("ZONE_CHANGED", &["2444", "\"Valdrakken\"", "0"]),
+        &mut context,
+    )
+    .expect("zone change should parse as context");
+    assert!(
+        extract_combat_trigger_event(&zone_event).is_none(),
+        "leaving the instance must not stop auto-record by itself"
+    );
+}
+
+#[test]
+fn arena_match_lines_emit_pvp_start_and_end_triggers() {
+    let mut context = super::parse::DebugParseContext::default();
+    let start_event = parse_important_combat_event(
+        &build_line("ARENA_MATCH_START", &["1505", "0", "3", "\"Coliseum\""]),
+        &mut context,
+    )
+    .expect("arena start should parse");
+    let start_trigger =
+        extract_combat_trigger_event(&start_event).expect("arena start should trigger record");
+    assert_eq!(start_trigger.trigger_type, "start");
+    assert_eq!(start_trigger.mode, "pvp");
+
+    let end_event = parse_important_combat_event(
+        &build_line("ARENA_MATCH_END", &["1", "0", "0"]),
+        &mut context,
+    )
+    .expect("arena end should parse");
+    let end_trigger =
+        extract_combat_trigger_event(&end_event).expect("arena end should trigger stop");
+    assert_eq!(end_trigger.trigger_type, "end");
+    assert_eq!(end_trigger.mode, "pvp");
+}
+
+#[test]
+fn raid_encounter_lines_emit_start_and_end_triggers_outside_mythic_plus() {
+    let mut context = super::parse::DebugParseContext::default();
+    let start_event = parse_important_combat_event(
+        &build_line("ENCOUNTER_START", &["3135", "\"Plexus Sentinel\"", "16"]),
+        &mut context,
+    )
+    .expect("raid encounter start should parse");
+    let start_trigger =
+        extract_combat_trigger_event(&start_event).expect("raid pull should trigger record");
+    assert_eq!(start_trigger.trigger_type, "start");
+    assert_eq!(start_trigger.mode, "raid");
+
+    let end_event = parse_important_combat_event(
+        &build_line(
+            "ENCOUNTER_END",
+            &["3135", "\"Plexus Sentinel\"", "16", "20", "1"],
+        ),
+        &mut context,
+    )
+    .expect("raid encounter end should parse");
+    let end_trigger =
+        extract_combat_trigger_event(&end_event).expect("raid wipe or kill should trigger stop");
+    assert_eq!(end_trigger.trigger_type, "end");
+    assert_eq!(end_trigger.mode, "raid");
+}
+
+#[test]
+fn dungeon_encounter_end_does_not_emit_raid_auto_record_stop() {
+    let mut context = super::parse::DebugParseContext::default();
+    parse_important_combat_event(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        &mut context,
+    );
+
+    let encounter_end = parse_important_combat_event(
+        &build_line(
+            "ENCOUNTER_END",
+            &["1", "\"Kystia Manaheart\"", "8", "5", "1"],
+        ),
+        &mut context,
+    )
+    .expect("dungeon encounter end should parse");
+    assert!(
+        extract_combat_trigger_event(&encounter_end).is_none(),
+        "M+ boss kills must not stop recording as a raid"
+    );
+}
+
+#[test]
+fn abandoned_pvp_match_emits_end_when_log_rotates() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.consume_combat_log_line(
+        &build_line("ARENA_MATCH_START", &["1505", "0", "3", "\"Coliseum\""]),
+        0.0,
+    );
+    accumulator.begin_recording_session(1.0);
+
+    let trigger = accumulator
+        .take_abandoned_auto_session_end_trigger()
+        .expect("open pvp match should emit an end trigger when the combat log is abandoned");
+    assert_eq!(trigger.trigger_type, "end");
+    assert_eq!(trigger.mode, "pvp");
+    assert_eq!(trigger.event_type, "PVP_MATCH_COMPLETE");
+    assert!(
+        accumulator
+            .take_abandoned_auto_session_end_trigger()
+            .is_none(),
+        "abandoned pvp end must be emitted only once"
+    );
+}
+
+#[test]
+fn raid_recording_does_not_emit_abandoned_end_when_log_rotates() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.consume_combat_log_line(
+        &build_line("ENCOUNTER_START", &["3135", "\"Plexus Sentinel\"", "16"]),
+        0.0,
+    );
+    accumulator.begin_recording_session(1.0);
+
+    assert!(
+        accumulator
+            .take_abandoned_auto_session_end_trigger()
+            .is_none(),
+        "raid VODs must keep recording across combat log rotation"
+    );
+}
+
+#[test]
+fn zone_change_during_key_still_emits_abandoned_end() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.consume_combat_log_line(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        0.0,
+    );
+    accumulator.begin_recording_session(1.0);
+    accumulator.consume_combat_log_line(
+        &build_line("ZONE_CHANGED", &["2444", "\"Valdrakken\"", "0"]),
+        30.0,
+    );
+
+    let trigger = accumulator
+        .take_abandoned_auto_session_end_trigger()
+        .expect("leaving the dungeon without CHALLENGE_MODE_END must still stop on log rotate");
+    assert_eq!(trigger.mode, "mythicPlus");
+}

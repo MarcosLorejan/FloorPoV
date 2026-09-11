@@ -12,6 +12,7 @@ function shortcutEvent(
     altKey: boolean;
     ctrlKey: boolean;
     metaKey: boolean;
+    shiftKey: boolean;
     repeat: boolean;
     defaultPrevented: boolean;
   }> = {},
@@ -21,6 +22,7 @@ function shortcutEvent(
     altKey: false,
     ctrlKey: false,
     metaKey: false,
+    shiftKey: false,
     repeat: false,
     defaultPrevented: false,
     ...overrides,
@@ -137,5 +139,21 @@ describe("resolvePlaybackShortcut", () => {
 
   test("ignores held Space so play/pause does not chatter", () => {
     expect(resolvePlaybackShortcut(shortcutEvent(" ", { repeat: true }), playerFocused)).toBe(null);
+  });
+
+  test("seeks with arrows and Home/End only when the player is focused", () => {
+    expect(resolvePlaybackShortcut(shortcutEvent("ArrowLeft"), idleContext)).toBe(null);
+    expect(resolvePlaybackShortcut(shortcutEvent("ArrowLeft"), playerFocused)).toBe("seek-back-fine");
+    expect(
+      resolvePlaybackShortcut(shortcutEvent("ArrowLeft", { shiftKey: true }), playerFocused),
+    ).toBe("seek-back-coarse");
+    expect(resolvePlaybackShortcut(shortcutEvent("ArrowRight"), playerFocused)).toBe(
+      "seek-forward-fine",
+    );
+    expect(
+      resolvePlaybackShortcut(shortcutEvent("ArrowRight", { shiftKey: true }), playerFocused),
+    ).toBe("seek-forward-coarse");
+    expect(resolvePlaybackShortcut(shortcutEvent("Home"), playerFocused)).toBe("seek-start");
+    expect(resolvePlaybackShortcut(shortcutEvent("End"), playerFocused)).toBe("seek-end");
   });
 });

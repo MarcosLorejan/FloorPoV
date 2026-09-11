@@ -44,9 +44,9 @@ const PLAYBACK_SHORTCUT_HELP_ID = "playback-shortcut-help";
 const PLAYBACK_SHORTCUTS = [
   { keys: "Space", action: "Play / pause" },
   { keys: "J / L", action: "Seek 10 seconds back / forward" },
-  { keys: "← / →", action: "Seek 1 second on the timeline" },
-  { keys: "Shift + ← / →", action: "Seek 5 seconds on the timeline" },
-  { keys: "Home / End", action: "Jump to start / end on the timeline" },
+  { keys: "← / →", action: "Seek 1 second when the player is focused" },
+  { keys: "Shift + ← / →", action: "Seek 5 seconds when the player is focused" },
+  { keys: "Home / End", action: "Jump to start / end when the player is focused" },
 ];
 
 export function VideoPlayer() {
@@ -313,14 +313,33 @@ export function VideoPlayer() {
         return;
       }
 
-      skipPlaybackBySeconds(action === "seek-back" ? -SKIP_SEEK_SECONDS : SKIP_SEEK_SECONDS);
+      if (action === "seek-start") {
+        seek(0);
+        return;
+      }
+
+      if (action === "seek-end") {
+        seek(duration);
+        return;
+      }
+
+      const seekDeltaSeconds = {
+        "seek-back": -SKIP_SEEK_SECONDS,
+        "seek-forward": SKIP_SEEK_SECONDS,
+        "seek-back-fine": -FINE_SEEK_SECONDS,
+        "seek-forward-fine": FINE_SEEK_SECONDS,
+        "seek-back-coarse": -COARSE_SEEK_SECONDS,
+        "seek-forward-coarse": COARSE_SEEK_SECONDS,
+      }[action];
+
+      skipPlaybackBySeconds(seekDeltaSeconds);
     };
 
     window.addEventListener("keydown", handlePlaybackShortcut);
     return () => {
       window.removeEventListener("keydown", handlePlaybackShortcut);
     };
-  }, [showVideo, skipPlaybackBySeconds, togglePlay]);
+  }, [duration, seek, showVideo, skipPlaybackBySeconds, togglePlay]);
 
   useEffect(() => {
     if (!showVideo) {

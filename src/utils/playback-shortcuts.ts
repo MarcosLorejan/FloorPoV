@@ -1,10 +1,20 @@
-export type PlaybackShortcutAction = "toggle-play" | "seek-back" | "seek-forward";
+export type PlaybackShortcutAction =
+  | "toggle-play"
+  | "seek-back"
+  | "seek-forward"
+  | "seek-back-fine"
+  | "seek-forward-fine"
+  | "seek-back-coarse"
+  | "seek-forward-coarse"
+  | "seek-start"
+  | "seek-end";
 
 interface PlaybackShortcutEvent {
   key: string;
   altKey: boolean;
   ctrlKey: boolean;
   metaKey: boolean;
+  shiftKey: boolean;
   repeat: boolean;
   defaultPrevented: boolean;
 }
@@ -87,7 +97,27 @@ export function resolvePlaybackShortcut(
     return "seek-forward";
   }
 
-  if (event.key !== " " || event.repeat || !context.isPlayerFocused) {
+  if (!context.isPlayerFocused) {
+    return null;
+  }
+
+  if (event.key === "ArrowLeft") {
+    return event.shiftKey ? "seek-back-coarse" : "seek-back-fine";
+  }
+
+  if (event.key === "ArrowRight") {
+    return event.shiftKey ? "seek-forward-coarse" : "seek-forward-fine";
+  }
+
+  if (event.key === "Home") {
+    return "seek-start";
+  }
+
+  if (event.key === "End") {
+    return "seek-end";
+  }
+
+  if (event.key !== " " || event.repeat) {
     return null;
   }
 

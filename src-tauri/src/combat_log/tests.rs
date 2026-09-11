@@ -799,6 +799,24 @@ fn midnight_rollover_computes_correct_elapsed_time() {
     assert_eq!(snapshot.important_events[1].timestamp_seconds, 20.0);
 }
 
+fn build_player_death_line(log_timestamp: &str, dest_guid: &str) -> String {
+    build_line_at(
+        "UNIT_DIED",
+        &[
+            "0000000000000000",
+            "nil",
+            "0x80000000",
+            "0x80000000",
+            dest_guid,
+            "\"PlayerOne-Area52\"",
+            "0x512",
+            "0x80000000",
+            "0",
+        ],
+        log_timestamp,
+    )
+}
+
 fn build_party_kill_line(index: usize) -> String {
     build_line(
         "PARTY_KILL",
@@ -870,6 +888,123 @@ fn parses_real_world_log_timestamp_format() {
     let seconds_year = ts_year.to_seconds_since_midnight();
     let expected_year = 12.0 * 3600.0 + 42.0 * 60.0 + 43.0 + 0.2241;
     assert!((seconds_year - expected_year).abs() < 0.001);
+
+    let timestamp_with_offset = "9/10/2026 18:21:25.067-3";
+    let parsed_offset = LogTimestamp::parse(timestamp_with_offset)
+        .expect("timezone suffix should not break log timestamp parsing");
+    assert_eq!(parsed_offset.hour, 18);
+    assert_eq!(parsed_offset.minute, 21);
+    assert_eq!(parsed_offset.second, 25);
+    assert!((parsed_offset.fractional_seconds - 0.067).abs() < 0.0001);
+
+    let timestamp_with_colon_offset = "9/10/2026 18:21:25.067+00:00";
+    let parsed_colon_offset = LogTimestamp::parse(timestamp_with_colon_offset)
+        .expect("colon timezone suffix should not break log timestamp parsing");
+    assert!((parsed_colon_offset.fractional_seconds - 0.067).abs() < 0.0001);
+}
+
+#[test]
+fn log_clock_spaces_deaths_when_timestamps_include_timezone() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let first_death = build_player_death_line("9/10/2026 18:22:35.112-3", "Player-1-00000001");
+    let second_death = build_player_death_line("9/10/2026 18:22:59.867-3", "Player-1-00000002");
+    accumulator.consume_combat_log_line(&first_death, 178.6);
+    accumulator.consume_combat_log_line(&second_death, 178.7);
+
+    let snapshot = accumulator.snapshot();
+    let death_events: Vec<_> = snapshot
+        .important_events
+        .iter()
+        .filter(|event| event.event_type == "UNIT_DIED")
+        .collect();
+
+    assert_eq!(death_events.len(), 2);
+    assert!(
+        (death_events[0].timestamp_seconds - 0.0).abs() < 0.01,
+        "first parseable log timestamp should become the session origin"
+    );
+    assert!(
+        (death_events[1].timestamp_seconds - 24.755).abs() < 0.01,
+        "later deaths should keep combat-log spacing instead of watcher batch time, got {}",
+        death_events[1].timestamp_seconds
+    );
+}
+
+#[test]
+fn rebases_compressed_sidecar_timestamps_from_log_clock() {
+    use super::metadata::rebase_recording_metadata_from_log_clock;
+    use crate::recording::metadata::{
+        RecordingEncounterMetadata, RecordingImportantEventMetadata, RecordingMetadata,
+    };
+    use std::path::Path;
+
+    let mut metadata = RecordingMetadata::new(Path::new("ruby-life-pools.mp4"));
+    metadata.important_events = vec![
+        RecordingImportantEventMetadata {
+            timestamp_seconds: 178.6,
+            log_timestamp: Some("9/10/2026 18:22:35.112-3".to_string()),
+            event_type: "UNIT_DIED".to_string(),
+            source: None,
+            target: Some("Atlas".to_string()),
+            target_kind: Some("PLAYER".to_string()),
+            zone_name: Some("Ruby Life Pools".to_string()),
+            encounter_name: None,
+            encounter_category: None,
+            key_level: Some(15),
+        },
+        RecordingImportantEventMetadata {
+            timestamp_seconds: 2232.8,
+            log_timestamp: Some("9/10/2026 18:57:21.587-3".to_string()),
+            event_type: "ENCOUNTER_END".to_string(),
+            source: None,
+            target: None,
+            target_kind: None,
+            zone_name: Some("Ruby Life Pools".to_string()),
+            encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
+            encounter_category: Some("mythicPlus".to_string()),
+            key_level: Some(15),
+        },
+        RecordingImportantEventMetadata {
+            timestamp_seconds: 2038.2,
+            log_timestamp: Some("9/10/2026 18:53:57.000-3".to_string()),
+            event_type: "ENCOUNTER_START".to_string(),
+            source: None,
+            target: None,
+            target_kind: None,
+            zone_name: Some("Ruby Life Pools".to_string()),
+            encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
+            encounter_category: Some("mythicPlus".to_string()),
+            key_level: Some(15),
+        },
+    ];
+    metadata.encounters = vec![RecordingEncounterMetadata {
+        name: "Kyrakka and Erkhart Stormvein".to_string(),
+        category: "mythicPlus".to_string(),
+        started_at_seconds: Some(2038.2),
+        ended_at_seconds: Some(2232.8),
+    }];
+
+    assert!(rebase_recording_metadata_from_log_clock(&mut metadata));
+    assert!(!rebase_recording_metadata_from_log_clock(&mut metadata));
+
+    let first_death = &metadata.important_events[0];
+    assert!(
+        (first_death.timestamp_seconds - 146.325).abs() < 0.02,
+        "compressed death should move to log-clock time, got {}",
+        first_death.timestamp_seconds
+    );
+    assert_eq!(
+        metadata.encounters[0].ended_at_seconds,
+        Some(metadata.important_events[1].timestamp_seconds)
+    );
+    assert!(
+        (metadata.encounters[0].started_at_seconds.unwrap()
+            - metadata.important_events[2].timestamp_seconds)
+            .abs()
+            < 0.001
+    );
 }
 
 #[test]

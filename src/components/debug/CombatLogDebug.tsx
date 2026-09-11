@@ -90,6 +90,8 @@ function getEventMarkerClassName(eventType: string): string {
       return "bg-sky-200 border-sky-50/85";
     case "COMBAT_RES":
       return "bg-emerald-200 border-emerald-50/85";
+    case "BOSS_ABILITY":
+      return "bg-violet-200 border-violet-50/85";
     case "SPELL_DISPEL":
       return "bg-neutral-300 border-neutral-100/85";
     default:
@@ -109,6 +111,8 @@ function getEventMarkerIcon(eventType: string) {
       return Zap;
     case "COMBAT_RES":
       return Heart;
+    case "BOSS_ABILITY":
+      return Sparkles;
     case "SPELL_DISPEL":
       return Sparkles;
     default:
@@ -128,6 +132,8 @@ function getEventIconClassName(eventType: string): string {
       return "text-sky-950";
     case "COMBAT_RES":
       return "text-emerald-950";
+    case "BOSS_ABILITY":
+      return "text-violet-950";
     case "SPELL_DISPEL":
       return "text-neutral-950";
     default:
@@ -262,6 +268,7 @@ export function CombatLogDebug() {
       "SPELL_DISPEL",
       "BLOODLUST",
       "COMBAT_RES",
+      "BOSS_ABILITY",
     ]);
     const markers = parseResult.parsedEvents
       .filter((event) => importantEventTypes.has(event.eventType))
@@ -427,7 +434,7 @@ export function CombatLogDebug() {
                   Encounter Timeline
                 </h2>
                 <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-neutral-400">
-                  {["PARTY_KILL", "UNIT_DIED", "SPELL_INTERRUPT", "BLOODLUST", "COMBAT_RES", "SPELL_DISPEL"].map((eventType) => {
+                  {["PARTY_KILL", "UNIT_DIED", "SPELL_INTERRUPT", "BLOODLUST", "COMBAT_RES", "BOSS_ABILITY", "SPELL_DISPEL"].map((eventType) => {
                     const MarkerIcon = getEventMarkerIcon(eventType);
                     return (
                       <span

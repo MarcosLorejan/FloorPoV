@@ -8,6 +8,7 @@ pub(crate) struct ImportantCombatEvent {
     pub(crate) source: Option<String>,
     pub(crate) target: Option<String>,
     pub(crate) target_kind: Option<String>,
+    pub(crate) ability_name: Option<String>,
     pub(crate) zone_name: Option<String>,
     pub(crate) encounter_name: Option<String>,
     pub(crate) encounter_category: Option<String>,
@@ -35,12 +36,15 @@ impl ImportantCombatEvent {
     ) -> Option<super::CombatEvent> {
         let timestamp = recording_elapsed_seconds?;
         match self.event_type.as_str() {
-            "PARTY_KILL" | "UNIT_DIED" | "BLOODLUST" | "COMBAT_RES" => Some(super::CombatEvent {
-                timestamp,
-                event_type: self.event_type,
-                source: self.source,
-                target: self.target,
-            }),
+            "PARTY_KILL" | "UNIT_DIED" | "BLOODLUST" | "COMBAT_RES" | "BOSS_ABILITY" => {
+                Some(super::CombatEvent {
+                    timestamp,
+                    event_type: self.event_type,
+                    source: self.source,
+                    target: self.target,
+                    ability_name: self.ability_name,
+                })
+            }
             _ => None,
         }
     }
@@ -80,7 +84,7 @@ pub(crate) fn parse_important_combat_event(
     line: &str,
     context: &mut DebugParseContext,
 ) -> Option<ImportantCombatEvent> {
-    let parsed_line = parse_log_line_fields(line)?;
+    let parsed_line = parse_log_line_fields(line, context.current_encounter.as_deref())?;
 
     update_debug_context(context, &parsed_line);
 
@@ -106,6 +110,7 @@ pub(crate) fn parse_important_combat_event(
         source: parsed_line.source,
         target: parsed_line.target,
         target_kind: parsed_line.target_kind,
+        ability_name: parsed_line.ability_name,
         zone_name: context.current_zone.clone(),
         encounter_name,
         encounter_category,
@@ -168,6 +173,7 @@ pub(crate) fn parse_important_log_line(
         source: parsed_event.source,
         target: parsed_event.target,
         target_kind: parsed_event.target_kind,
+        ability_name: parsed_event.ability_name,
         zone_name: parsed_event.zone_name,
         encounter_name: parsed_event.encounter_name,
         encounter_category: parsed_event.encounter_category,
@@ -196,10 +202,11 @@ struct ParsedLogLine {
     source: Option<String>,
     target: Option<String>,
     target_kind: Option<String>,
+    ability_name: Option<String>,
     fields: Vec<String>,
 }
 
-fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
+fn parse_log_line_fields(line: &str, encounter_name: Option<&str>) -> Option<ParsedLogLine> {
     let trimmed_line = line.trim();
     if trimmed_line.is_empty() {
         return None;
@@ -211,7 +218,8 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
     let remaining_fields = fields
         .map(|value| value.trim().to_string())
         .collect::<Vec<String>>();
-    let normalized_event_type = normalize_important_event_type(raw_event_type, &remaining_fields)?;
+    let normalized_event_type =
+        normalize_important_event_type(raw_event_type, &remaining_fields, encounter_name)?;
 
     let source_name = remaining_fields.get(1).map(|value| value.as_str());
     let source_guid = remaining_fields.first().map(|value| value.as_str());
@@ -221,6 +229,11 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
     let dest_flags = remaining_fields.get(6).map(|value| value.as_str());
     let source_kind = classify_unit_type(source_flags, source_guid).map(str::to_string);
     let target_kind = classify_unit_type(dest_flags, dest_guid).map(str::to_string);
+    let ability_name = if normalized_event_type == "BOSS_ABILITY" {
+        extract_spell_name(&remaining_fields)
+    } else {
+        None
+    };
 
     Some(ParsedLogLine {
         raw_event_type: raw_event_type.to_string(),
@@ -229,18 +242,23 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
         source: normalize_entity_name(source_name, source_kind.as_deref()),
         target: normalize_entity_name(dest_name, target_kind.as_deref()),
         target_kind,
+        ability_name,
         fields: remaining_fields,
     })
 }
 
-fn normalize_important_event_type(event_type: &str, fields: &[String]) -> Option<&'static str> {
+fn normalize_important_event_type(
+    event_type: &str,
+    fields: &[String],
+    encounter_name: Option<&str>,
+) -> Option<&'static str> {
     match event_type {
         "PARTY_KILL" => Some("PARTY_KILL"),
         "UNIT_DIED" | "UNIT_DESTROYED" => Some("UNIT_DIED"),
         "SPELL_INTERRUPT" => Some("SPELL_INTERRUPT"),
         "SPELL_DISPEL" => Some("SPELL_DISPEL"),
         "SPELL_RESURRECT" => Some("COMBAT_RES"),
-        "SPELL_CAST_SUCCESS" => classify_cast_success_event(fields),
+        "SPELL_CAST_SUCCESS" => classify_cast_success_event(fields, encounter_name),
         "ENCOUNTER_START" => Some("ENCOUNTER_START"),
         "ENCOUNTER_END" => Some("ENCOUNTER_END"),
         event_type if is_zone_context_event_type(event_type) => Some("ZONE_CONTEXT"),
@@ -251,11 +269,18 @@ fn normalize_important_event_type(event_type: &str, fields: &[String]) -> Option
     }
 }
 
-fn classify_cast_success_event(fields: &[String]) -> Option<&'static str> {
-    let spell_id = extract_spell_id(fields)?;
+fn classify_cast_success_event(
+    fields: &[String],
+    encounter_name: Option<&str>,
+) -> Option<&'static str> {
+    if let Some(spell_id) = extract_spell_id(fields) {
+        if is_bloodlust_spell_id(spell_id) {
+            return Some("BLOODLUST");
+        }
+    }
 
-    if is_bloodlust_spell_id(spell_id) {
-        return Some("BLOODLUST");
+    if is_boss_ability_cast(fields, encounter_name) {
+        return Some("BOSS_ABILITY");
     }
 
     None
@@ -263,6 +288,158 @@ fn classify_cast_success_event(fields: &[String]) -> Option<&'static str> {
 
 fn extract_spell_id(fields: &[String]) -> Option<u32> {
     fields.get(8)?.trim_matches('"').parse().ok()
+}
+
+fn extract_spell_name(fields: &[String]) -> Option<String> {
+    normalize_name(fields.get(9).map(|value| value.as_str()))
+}
+
+fn is_boss_ability_cast(fields: &[String], encounter_name: Option<&str>) -> bool {
+    let Some(encounter_name) = encounter_name.filter(|name| !name.is_empty()) else {
+        return false;
+    };
+
+    let source_guid = fields.first().map(|value| value.as_str());
+    let source_name_raw = fields.get(1).map(|value| value.as_str());
+    let source_flags = fields.get(2).map(|value| value.as_str());
+    if classify_unit_type(source_flags, source_guid) != Some("NPC") {
+        return false;
+    }
+
+    let Some(source_name) = normalize_name(source_name_raw) else {
+        return false;
+    };
+    let Some(spell_name) = extract_spell_name(fields) else {
+        return false;
+    };
+    if is_ignored_ability_name(&spell_name) {
+        return false;
+    }
+
+    is_encounter_relevant_boss(&source_name, encounter_name, source_guid)
+}
+
+fn is_ignored_ability_name(spell_name: &str) -> bool {
+    matches!(
+        spell_name.to_ascii_lowercase().as_str(),
+        "melee" | "auto attack" | "attack" | "weapon" | "shoot"
+    )
+}
+
+fn is_encounter_relevant_boss(
+    source_name: &str,
+    encounter_name: &str,
+    source_guid: Option<&str>,
+) -> bool {
+    if is_trash_like_unit_name(source_name) {
+        return false;
+    }
+
+    if names_are_encounter_related(source_name, encounter_name) {
+        return true;
+    }
+
+    if source_guid.is_some_and(|guid| guid.starts_with("Vehicle-")) {
+        return true;
+    }
+
+    is_multi_boss_encounter(encounter_name)
+}
+
+fn is_multi_boss_encounter(encounter_name: &str) -> bool {
+    let lower = encounter_name.to_ascii_lowercase();
+    lower.contains(" and ")
+        || lower.contains(" & ")
+        || lower.contains("twins")
+        || name_ends_with_word(&lower, "council")
+        || name_ends_with_word(&lower, "court")
+        || name_ends_with_word(&lower, "assembly")
+        || name_ends_with_word(&lower, "trio")
+}
+
+fn name_ends_with_word(name: &str, word: &str) -> bool {
+    name == word
+        || name
+            .strip_suffix(word)
+            .is_some_and(|prefix| prefix.ends_with([' ', '-', '\'']))
+}
+
+fn is_trash_like_unit_name(source_name: &str) -> bool {
+    const TRASH_TOKENS: &[&str] = &[
+        "spawn",
+        "remnant",
+        "fragment",
+        "echo",
+        "image",
+        "illusion",
+        "totem",
+        "trap",
+        "mine",
+        "orb",
+        "stalker",
+        "bunny",
+        "controller",
+        "trigger",
+        "missile",
+        "swarmer",
+        "hatchling",
+        "egg",
+        "larva",
+        "maggot",
+        "minion",
+        "familiar",
+        "dummy",
+        "spark",
+        "shard",
+        "globule",
+        "droplet",
+        "voidling",
+        "oozeling",
+        "wisp",
+        "add",
+    ];
+
+    compare_name_words(source_name)
+        .iter()
+        .any(|token| TRASH_TOKENS.contains(&token.as_str()))
+}
+
+fn names_are_encounter_related(source_name: &str, encounter_name: &str) -> bool {
+    let source_words = compare_name_words(source_name);
+    let encounter_words = compare_name_words(encounter_name);
+    if source_words.is_empty() || encounter_words.is_empty() {
+        return false;
+    }
+
+    source_words == encounter_words
+        || contains_contiguous_words(&encounter_words, &source_words)
+        || contains_contiguous_words(&source_words, &encounter_words)
+}
+
+fn compare_name_words(name: &str) -> Vec<String> {
+    name.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .filter(|word| word.len() >= 2)
+        .map(str::to_string)
+        .collect()
+}
+
+fn contains_contiguous_words(haystack: &[String], needle: &[String]) -> bool {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return false;
+    }
+
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 fn is_bloodlust_spell_id(spell_id: u32) -> bool {

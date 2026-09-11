@@ -18,6 +18,7 @@ const EVENT_LIST_LABELS: Record<GameEvent["type"], string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  bossAbility: "Boss Ability",
 };
 
 function getEventListDetail(event: GameEvent): string {
@@ -39,6 +40,10 @@ function getEventListDetail(event: GameEvent): string {
 
   if (event.type === "combatRes") {
     return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+  }
+
+  if (event.type === "bossAbility") {
+    return `${event.ability ?? "Unknown"} · ${formatUnitName(event.source)}`;
   }
 
   return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
@@ -88,16 +93,16 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           <ListVideo className="h-3.5 w-3.5 text-neutral-300" />
           Events
         </div>
-        <EventTypeFilter types={["death", "interrupt", "manual", "bloodlust", "combatRes"]} />
+        <EventTypeFilter types={["death", "interrupt", "manual", "bloodlust", "combatRes", "bossAbility"]} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, bloodlust, combat res, and markers.
+            Load a recording to see deaths, interrupts, bloodlust, combat res, boss abilities, and markers.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, bloodlust, combat res, or markers in this recording.
+            No deaths, interrupts, bloodlust, combat res, boss abilities, or markers in this recording.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>

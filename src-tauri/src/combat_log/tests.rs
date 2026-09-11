@@ -209,6 +209,288 @@ fn ignores_unrelated_spell_cast_success() {
     assert!(snapshot.important_events.is_empty());
 }
 
+fn build_spell_cast_success_line(
+    source_guid: &str,
+    source_name: &str,
+    source_flags: &str,
+    spell_id: &str,
+    spell_name: &str,
+) -> String {
+    build_line(
+        "SPELL_CAST_SUCCESS",
+        &[
+            source_guid,
+            &format!("\"{source_name}\""),
+            source_flags,
+            "0x0",
+            "0000000000000000",
+            "nil",
+            "0x80000000",
+            "0x0",
+            spell_id,
+            &format!("\"{spell_name}\""),
+            "64",
+        ],
+    )
+}
+
+#[test]
+fn records_boss_ability_when_source_matches_encounter() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+    accumulator.consume_combat_log_line(
+        &build_line("ENCOUNTER_START", &["1", "\"Queen Ansurek\"", "16"]),
+        1.0,
+    );
+
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Creature-0-0-0-0-2001-0000000000",
+            "Queen Ansurek",
+            "0x10a48",
+            "443403",
+            "Devour",
+        ),
+        12.0,
+    );
+
+    let snapshot = accumulator.snapshot();
+    let boss_abilities: Vec<_> = snapshot
+        .important_events
+        .iter()
+        .filter(|event| event.event_type == "BOSS_ABILITY")
+        .collect();
+
+    assert_eq!(boss_abilities.len(), 1);
+    assert_eq!(boss_abilities[0].source.as_deref(), Some("Queen Ansurek"));
+    assert_eq!(boss_abilities[0].ability_name.as_deref(), Some("Devour"));
+    assert_ne!(boss_abilities[0].target.as_deref(), Some("Devour"));
+    assert_eq!(
+        snapshot.important_event_counts.get("BOSS_ABILITY").copied(),
+        Some(1)
+    );
+}
+
+#[test]
+fn records_titled_encounter_boss_by_short_name() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+    accumulator.consume_combat_log_line(
+        &build_line(
+            "ENCOUNTER_START",
+            &["1", "\"Sikran, Captain of the Sureki\"", "16"],
+        ),
+        1.0,
+    );
+
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Creature-0-0-0-0-2002-0000000000",
+            "Sikran",
+            "0x10a48",
+            "434705",
+            "Phase Blades",
+        ),
+        8.0,
+    );
+
+    let snapshot = accumulator.snapshot();
+    let boss_ability = snapshot
+        .important_events
+        .iter()
+        .find(|event| event.event_type == "BOSS_ABILITY")
+        .expect("titled encounter source should match the boss short name");
+    assert_eq!(boss_ability.source.as_deref(), Some("Sikran"));
+    assert_eq!(boss_ability.ability_name.as_deref(), Some("Phase Blades"));
+}
+
+#[test]
+fn ignores_trash_npc_cast_during_encounter() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+    accumulator.consume_combat_log_line(
+        &build_line("ENCOUNTER_START", &["1", "\"Queen Ansurek\"", "16"]),
+        1.0,
+    );
+
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Creature-0-0-0-0-3001-0000000000",
+            "Ascended Voidling",
+            "0x10a48",
+            "123456",
+            "Void Bolt",
+        ),
+        9.0,
+    );
+
+    let snapshot = accumulator.snapshot();
+    assert!(
+        snapshot
+            .important_events
+            .iter()
+            .all(|event| event.event_type != "BOSS_ABILITY"),
+        "trash-like NPC casts must not become boss abilities"
+    );
+}
+
+#[test]
+fn ignores_boss_cast_outside_encounter() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Creature-0-0-0-0-2001-0000000000",
+            "Queen Ansurek",
+            "0x10a48",
+            "443403",
+            "Devour",
+        ),
+        4.0,
+    );
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot.important_events.is_empty());
+}
+
+#[test]
+fn records_vehicle_boss_ability_during_encounter() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+    accumulator.consume_combat_log_line(
+        &build_line("ENCOUNTER_START", &["1", "\"Plexus Sentinel\"", "16"]),
+        1.0,
+    );
+
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Vehicle-0-0-0-0-2003-0000000000",
+            "Unknown Construct",
+            "0x10a48",
+            "122385",
+            "Purifying Light",
+        ),
+        15.0,
+    );
+
+    let snapshot = accumulator.snapshot();
+    let boss_ability = snapshot
+        .important_events
+        .iter()
+        .find(|event| event.event_type == "BOSS_ABILITY")
+        .expect("vehicle casters during an encounter should be treated as the boss");
+    assert_eq!(boss_ability.source.as_deref(), Some("Unknown Construct"));
+    assert_eq!(
+        boss_ability.ability_name.as_deref(),
+        Some("Purifying Light")
+    );
+}
+
+#[test]
+fn records_council_member_ability_for_multi_boss_encounter() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+    accumulator.consume_combat_log_line(
+        &build_line("ENCOUNTER_START", &["1", "\"The Silken Court\"", "16"]),
+        1.0,
+    );
+
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Creature-0-0-0-0-2004-0000000000",
+            "Anub'arash",
+            "0x10a48",
+            "438245",
+            "Impaling Eruption",
+        ),
+        20.0,
+    );
+
+    let snapshot = accumulator.snapshot();
+    let boss_ability = snapshot
+        .important_events
+        .iter()
+        .find(|event| event.event_type == "BOSS_ABILITY")
+        .expect("council encounter members should be recorded without a name match");
+    assert_eq!(boss_ability.source.as_deref(), Some("Anub'arash"));
+    assert_eq!(
+        boss_ability.ability_name.as_deref(),
+        Some("Impaling Eruption")
+    );
+}
+
+#[test]
+fn ignores_melee_and_player_casts_during_encounter() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+    accumulator.consume_combat_log_line(
+        &build_line("ENCOUNTER_START", &["1", "\"Queen Ansurek\"", "16"]),
+        1.0,
+    );
+
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Creature-0-0-0-0-2001-0000000000",
+            "Queen Ansurek",
+            "0x10a48",
+            "6603",
+            "Auto Attack",
+        ),
+        6.0,
+    );
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Player-1111-00000002",
+            "DruidOne-NA",
+            "0x514",
+            "8921",
+            "Moonfire",
+        ),
+        7.0,
+    );
+
+    let snapshot = accumulator.snapshot();
+    assert!(
+        snapshot
+            .important_events
+            .iter()
+            .all(|event| event.event_type != "BOSS_ABILITY"),
+        "melee and player casts must stay off the boss-ability timeline"
+    );
+}
+
+#[test]
+fn bloodlust_still_wins_during_encounter() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+    accumulator.consume_combat_log_line(
+        &build_line("ENCOUNTER_START", &["1", "\"Queen Ansurek\"", "16"]),
+        1.0,
+    );
+
+    accumulator.consume_combat_log_line(
+        &build_spell_cast_success_line(
+            "Player-1111-00000001",
+            "MageOne-NA",
+            "0x514",
+            "80353",
+            "Time Warp",
+        ),
+        12.0,
+    );
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot
+        .important_events
+        .iter()
+        .any(|event| event.event_type == "BLOODLUST"));
+    assert!(snapshot
+        .important_events
+        .iter()
+        .all(|event| event.event_type != "BOSS_ABILITY"));
+}
+
 #[test]
 fn ignores_rebirth_cast_success_in_favor_of_resurrect() {
     let mut accumulator = RecordingMetadataAccumulator::default();
@@ -949,6 +1231,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: Some("Atlas".to_string()),
             target_kind: Some("PLAYER".to_string()),
+            ability_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: None,
             encounter_category: None,
@@ -961,6 +1244,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: None,
             target_kind: None,
+            ability_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),
@@ -973,6 +1257,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: None,
             target_kind: None,
+            ability_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),

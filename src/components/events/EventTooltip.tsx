@@ -14,6 +14,7 @@ const EVENT_LABELS: Record<GameEvent["type"], string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  bossAbility: "Boss Ability",
 };
 
 function getEventDescription(event: GameEvent): string {
@@ -35,6 +36,10 @@ function getEventDescription(event: GameEvent): string {
 
   if (event.type === "combatRes") {
     return `${event.source ?? "Unknown"} combat ressed ${event.target ?? "Unknown"}`;
+  }
+
+  if (event.type === "bossAbility") {
+    return `${event.source ?? "Unknown"} cast ${event.ability ?? "Unknown"}`;
   }
 
   return `${event.source ?? "Unknown"} killed ${event.target ?? "Unknown"}`;

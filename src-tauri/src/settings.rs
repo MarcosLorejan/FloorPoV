@@ -145,7 +145,12 @@ pub fn get_recording_metadata(
         return Err("Only .mp4 recordings are supported".to_string());
     }
 
-    recording_metadata::read_recording_metadata(recording_path)
+    let mut metadata = recording_metadata::read_recording_metadata(recording_path)?;
+    if let Some(loaded_metadata) = metadata.as_mut() {
+        crate::combat_log::metadata::rebase_recording_metadata_from_log_clock(loaded_metadata);
+    }
+
+    Ok(metadata)
 }
 
 #[tauri::command]

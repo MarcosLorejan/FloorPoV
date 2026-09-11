@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
@@ -10,6 +10,8 @@ import {
   Minimize,
   Pause,
   Play,
+  SkipBack,
+  SkipForward,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -28,8 +30,21 @@ import { smoothTransition } from "../../lib/motion";
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 const FINE_SEEK_SECONDS = 1;
 const COARSE_SEEK_SECONDS = 5;
+const SKIP_SEEK_SECONDS = 10;
 const FULLSCREEN_EVENTS_PANEL_WIDTH_PX = 320;
 const FULLSCREEN_EVENTS_PANEL_ID = "fullscreen-events-panel";
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (target.isContentEditable) {
+    return true;
+  }
+
+  return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
+}
 
 export function VideoPlayer() {
   const {
@@ -111,6 +126,15 @@ export function VideoPlayer() {
       setVolume(0);
     }
   };
+
+  const skipPlaybackBySeconds = useCallback((deltaSeconds: number) => {
+    const videoElement = videoRef.current;
+    if (!videoElement || !Number.isFinite(videoElement.duration) || videoElement.duration <= 0) {
+      return;
+    }
+
+    seek(videoElement.currentTime + deltaSeconds);
+  }, [seek, videoRef]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const seekBarEvents = useMemo(() => {
@@ -242,6 +266,38 @@ export function VideoPlayer() {
       setIsFullscreenEventsOpen(false);
     }
   }, [canShowFullscreenEvents]);
+
+  useEffect(() => {
+    if (!showVideo) {
+      return;
+    }
+
+    const handleSkipShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+      }
+
+      if (isEditableKeyboardTarget(event.target)) {
+        return;
+      }
+
+      if (event.key === "j" || event.key === "J") {
+        event.preventDefault();
+        skipPlaybackBySeconds(-SKIP_SEEK_SECONDS);
+        return;
+      }
+
+      if (event.key === "l" || event.key === "L") {
+        event.preventDefault();
+        skipPlaybackBySeconds(SKIP_SEEK_SECONDS);
+      }
+    };
+
+    window.addEventListener("keydown", handleSkipShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleSkipShortcut);
+    };
+  }, [seek, showVideo, skipPlaybackBySeconds, videoRef]);
 
   useEffect(() => {
     if (!showVideo) {
@@ -591,10 +647,30 @@ export function VideoPlayer() {
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-3">
             <div className="flex items-center gap-2 sm:gap-3 md:shrink-0">
               <ControlIconButton
+                label="Skip back 10 seconds"
+                onClick={() => {
+                  skipPlaybackBySeconds(-SKIP_SEEK_SECONDS);
+                }}
+                disabled={duration <= 0}
+              >
+                <SkipBack className="w-5 h-5" />
+              </ControlIconButton>
+
+              <ControlIconButton
                 label={isPlaying ? "Pause playback" : "Play recording"}
                 onClick={togglePlay}
               >
                 {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+              </ControlIconButton>
+
+              <ControlIconButton
+                label="Skip forward 10 seconds"
+                onClick={() => {
+                  skipPlaybackBySeconds(SKIP_SEEK_SECONDS);
+                }}
+                disabled={duration <= 0}
+              >
+                <SkipForward className="w-5 h-5" />
               </ControlIconButton>
 
               <ControlIconButton

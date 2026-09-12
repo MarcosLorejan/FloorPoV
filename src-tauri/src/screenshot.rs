@@ -1,6 +1,13 @@
-//! Save a still frame captured from playback to the recordings output folder.
+//! Save a still frame from a recording file to the recordings output folder.
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+use tauri::AppHandle;
+
+use crate::recording::{resolve_ffmpeg_binary_path, CREATE_NO_WINDOW};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 
@@ -10,24 +17,112 @@ const DEFAULT_STEM: &str = "screenshot";
 
 #[tauri::command]
 pub fn save_playback_screenshot(
+    app_handle: AppHandle,
     output_folder: String,
+    recording_path: String,
+    timestamp_seconds: f64,
     file_stem: Option<String>,
-    data_url: String,
 ) -> Result<String, String> {
+    let recording_file = PathBuf::from(recording_path.trim());
+    validate_recording_path(&recording_file)?;
+    validate_timestamp(timestamp_seconds)?;
+
     let screenshots_dir = screenshots_dir(&output_folder)?;
     std::fs::create_dir_all(&screenshots_dir)
         .map_err(|error| format!("Could not create the screenshots folder: {error}"))?;
 
-    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f").to_string();
-    let saved_path = write_playback_screenshot(
-        &screenshots_dir,
-        file_stem.as_deref(),
-        &data_url,
-        &timestamp,
+    let clock_stamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f").to_string();
+    let stem = sanitize_screenshot_stem(file_stem.as_deref().unwrap_or(DEFAULT_STEM));
+    let file_name = format!("{stem}_{clock_stamp}.png");
+    if Path::new(&file_name).components().count() != 1 {
+        return Err("Invalid screenshot file name.".to_string());
+    }
+
+    let saved_path = unique_screenshot_path(&screenshots_dir.join(file_name));
+    if saved_path.parent() != Some(screenshots_dir.as_path()) {
+        return Err("Screenshot path escaped the screenshots folder.".to_string());
+    }
+
+    let ffmpeg_binary_path = resolve_ffmpeg_binary_path(&app_handle)?;
+    extract_frame_with_ffmpeg(
+        &ffmpeg_binary_path,
+        &recording_file,
+        timestamp_seconds,
+        &saved_path,
     )?;
 
     tracing::info!(path = %saved_path.display(), "Saved playback screenshot");
     Ok(saved_path.to_string_lossy().to_string())
+}
+
+fn validate_recording_path(recording_path: &Path) -> Result<(), String> {
+    if recording_path.as_os_str().is_empty() {
+        return Err("Load a recording before capturing a screenshot.".to_string());
+    }
+
+    if recording_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_none_or(|extension| !extension.eq_ignore_ascii_case("mp4"))
+    {
+        return Err("Only .mp4 recordings can be captured.".to_string());
+    }
+
+    if !recording_path.is_file() {
+        return Err(format!(
+            "Recording file not found: {}",
+            recording_path.display()
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_timestamp(timestamp_seconds: f64) -> Result<(), String> {
+    if !timestamp_seconds.is_finite() || timestamp_seconds < 0.0 {
+        return Err("The video timestamp is not valid.".to_string());
+    }
+
+    Ok(())
+}
+
+fn extract_frame_with_ffmpeg(
+    ffmpeg_binary_path: &Path,
+    recording_path: &Path,
+    timestamp_seconds: f64,
+    output_path: &Path,
+) -> Result<(), String> {
+    let mut command = Command::new(ffmpeg_binary_path);
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let status = command
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-nostdin")
+        .arg("-ss")
+        .arg(format!("{timestamp_seconds:.3}"))
+        .arg("-i")
+        .arg(recording_path)
+        .arg("-frames:v")
+        .arg("1")
+        .arg("-y")
+        .arg(output_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .status()
+        .map_err(|error| format!("Could not start FFmpeg for the screenshot: {error}"))?;
+
+    if !status.success() {
+        return Err("FFmpeg could not capture this video frame.".to_string());
+    }
+
+    if !output_path.is_file() {
+        return Err("FFmpeg did not write a screenshot file.".to_string());
+    }
+
+    Ok(())
 }
 
 fn screenshots_dir(output_folder: &str) -> Result<PathBuf, String> {
@@ -159,7 +254,8 @@ fn unique_screenshot_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_image_data_url, sanitize_screenshot_stem, screenshots_dir, write_playback_screenshot,
+        decode_image_data_url, sanitize_screenshot_stem, screenshots_dir, validate_recording_path,
+        validate_timestamp, write_playback_screenshot,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -297,5 +393,23 @@ mod tests {
 
         std::fs::remove_dir_all(&temp_directory)
             .expect("Failed to remove temporary screenshots directory");
+    }
+
+    #[test]
+    fn rejects_invalid_recording_paths() {
+        let error = validate_recording_path(std::path::Path::new(""))
+            .expect_err("empty recording path should fail");
+        assert!(error.contains("Load a recording"));
+
+        let error = validate_recording_path(std::path::Path::new(r"C:\Videos\clip.mkv"))
+            .expect_err("non-mp4 recordings should fail");
+        assert!(error.contains(".mp4"));
+    }
+
+    #[test]
+    fn rejects_invalid_timestamps() {
+        assert!(validate_timestamp(-1.0).is_err());
+        assert!(validate_timestamp(f64::NAN).is_err());
+        assert!(validate_timestamp(12.5).is_ok());
     }
 }

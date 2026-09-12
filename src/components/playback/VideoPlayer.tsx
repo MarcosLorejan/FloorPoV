@@ -30,7 +30,6 @@ import { EVENT_SEEK_OFFSET_SECONDS, isVideoSeekBarEvent, type GameEvent } from "
 import { getErrorMessage } from "../../services/tauri";
 import { formatTime } from "../../utils/format";
 import {
-  captureVideoFrameDataUrl,
   screenshotFileNameFromPath,
   screenshotFileStemFromPath,
 } from "../../utils/playback-screenshot";
@@ -165,11 +164,10 @@ export function VideoPlayer() {
       return;
     }
 
-    const videoElement = videoRef.current;
-    if (!videoElement) {
+    if (!loadedFilePath) {
       setScreenshotNotice({
         kind: "error",
-        message: "The video frame is not ready yet.",
+        message: "Load a recording before capturing a screenshot.",
       });
       return;
     }
@@ -179,11 +177,11 @@ export function VideoPlayer() {
     setScreenshotNotice(null);
 
     try {
-      const dataUrl = captureVideoFrameDataUrl(videoElement);
       const savedPath = await invoke<string>("save_playback_screenshot", {
         outputFolder: settings.outputFolder,
+        recordingPath: loadedFilePath,
+        timestampSeconds: currentTime,
         fileStem: screenshotFileStemFromPath(loadedFilePath),
-        dataUrl,
       });
       setScreenshotNotice({
         kind: "success",
@@ -198,7 +196,7 @@ export function VideoPlayer() {
       isCapturingScreenshotRef.current = false;
       setIsCapturingScreenshot(false);
     }
-  }, [loadedFilePath, settings.outputFolder, showVideo, videoRef]);
+  }, [currentTime, loadedFilePath, settings.outputFolder, showVideo]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const seekBarEvents = useMemo(() => {

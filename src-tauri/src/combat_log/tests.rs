@@ -48,6 +48,31 @@ fn caps_high_volume_events_but_keeps_structural_events() {
 }
 
 #[test]
+fn names_recorded_manual_markers() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+    accumulator.record_manual_marker(4.0);
+    accumulator.record_manual_marker(12.0);
+
+    let first_timestamp = accumulator.snapshot().important_events[0].timestamp_seconds;
+    assert!(accumulator.set_manual_marker_name(
+        first_timestamp,
+        0,
+        Some("  hold kick  ".to_string())
+    ));
+
+    let snapshot = accumulator.snapshot();
+    let manual_markers = snapshot
+        .important_events
+        .iter()
+        .filter(|event| event.event_type == "MANUAL_MARKER")
+        .collect::<Vec<_>>();
+    assert_eq!(manual_markers.len(), 2);
+    assert_eq!(manual_markers[0].name.as_deref(), Some("hold kick"));
+    assert_eq!(manual_markers[1].name, None);
+}
+
+#[test]
 fn updates_zone_context_without_persisting_context_only_events() {
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.begin_recording_session(0.0);
@@ -1610,6 +1635,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             encounter_name: None,
             encounter_category: None,
             key_level: Some(15),
+            name: None,
         },
         RecordingImportantEventMetadata {
             timestamp_seconds: 2232.8,
@@ -1623,6 +1649,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),
             key_level: Some(15),
+            name: None,
         },
         RecordingImportantEventMetadata {
             timestamp_seconds: 2038.2,
@@ -1636,6 +1663,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),
             key_level: Some(15),
+            name: None,
         },
     ];
     metadata.encounters = vec![RecordingEncounterMetadata {

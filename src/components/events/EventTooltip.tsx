@@ -1,4 +1,4 @@
-import { GameEvent, GameEventType } from "../../types/events";
+import { GameEvent, GameEventType, getManualMarkerLabel } from "../../types/events";
 import { formatTime } from "../../utils/format";
 import { AnimatedTooltip } from "../ui/AnimatedTooltip";
 
@@ -72,7 +72,9 @@ function getEventDescription(event: GameEvent): string {
 export function EventTooltip({ event, x }: EventTooltipProps) {
   return (
     <AnimatedTooltip x={x}>
-      <div className="font-medium">{EVENT_LABELS[event.type]}</div>
+      <div className="font-medium">
+        {event.type === "manual" ? getManualMarkerLabel(event) : EVENT_LABELS[event.type]}
+      </div>
       <div className="text-neutral-400">{getEventDescription(event)}</div>
       <div className="text-neutral-500">{formatTime(event.timestamp)}</div>
     </AnimatedTooltip>

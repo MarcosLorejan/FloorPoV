@@ -18,6 +18,7 @@ export interface GameEvent {
   target?: string;
   targetKind?: string;
   abilityName?: string;
+  name?: string;
   note?: string;
 }
 
@@ -33,6 +34,7 @@ export interface RecordingImportantEventMetadata {
   encounterName?: string;
   encounterCategory?: string;
   keyLevel?: number;
+  name?: string;
 }
 
 export interface RecordingEncounterMetadata {
@@ -77,6 +79,7 @@ export interface CombatEvent {
   source?: string;
   target?: string;
   abilityName?: string;
+  name?: string;
 }
 
 export interface CombatTriggerEvent {
@@ -127,6 +130,59 @@ export interface ImportCombatLogResult {
 }
 
 export const EVENT_SEEK_OFFSET_SECONDS = 5;
+export const MANUAL_MARKER_NAME_MAX_LENGTH = 64;
+export const MANUAL_MARKER_TIMESTAMP_EPSILON_SECONDS = 0.05;
+
+/** 0-based index among manual markers in the same timestamp window, matching sidecar order. */
+export function manualMarkerOccurrenceIndex(
+  events: GameEvent[],
+  targetEvent: GameEvent,
+): number {
+  let occurrence = 0;
+
+  for (const event of events) {
+    if (event.type !== "manual") {
+      continue;
+    }
+
+    if (Math.abs(event.timestamp - targetEvent.timestamp) > MANUAL_MARKER_TIMESTAMP_EPSILON_SECONDS) {
+      continue;
+    }
+
+    if (event.id === targetEvent.id) {
+      return occurrence;
+    }
+
+    occurrence += 1;
+  }
+
+  return 0;
+}
+
+export function normalizeManualMarkerName(value: string | undefined | null): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const collapsed = value.trim().replace(/\s+/g, " ");
+  if (!collapsed) {
+    return undefined;
+  }
+
+  return Array.from(collapsed).slice(0, MANUAL_MARKER_NAME_MAX_LENGTH).join("");
+}
+
+export function getManualMarkerLabel(event: Pick<GameEvent, "name">): string {
+  return event.name ?? "Manual marker";
+}
+
+export function shouldPromptManualMarkerName(): boolean {
+  if (typeof document === "undefined") {
+    return false;
+  }
+
+  return document.visibilityState === "visible" && document.hasFocus();
+}
 
 const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "PARTY_KILL",
@@ -289,6 +345,7 @@ export function convertRecordingMetadataToGameEvents(
         target: importantEvent.target,
         targetKind: importantEvent.targetKind,
         abilityName: importantEvent.abilityName,
+        name: normalizeManualMarkerName(importantEvent.name),
       }];
     })
     .sort((a, b) => a.timestamp - b.timestamp)
@@ -380,18 +437,26 @@ export function shouldShowGameEvent(
   return !isNpcKind(event.targetKind, event.target);
 }
 
+// Live events arrive one at a time and two markers can share a timestamp, so ids need a
+// sequence to stay unique. Renaming a marker targets the event by id, not by timestamp.
+let liveEventSequence = 0;
+
 export function convertCombatEvent(combatEvent: CombatEvent): GameEvent {
   const type = mapEventTypeToGameEventType(combatEvent.eventType);
+  liveEventSequence += 1;
   const identity = [combatEvent.source, combatEvent.target, combatEvent.abilityName]
     .filter(Boolean)
     .join("-");
 
   return {
-    id: `${combatEvent.timestamp}-${combatEvent.eventType}-${identity}`,
+    id: identity
+      ? `${combatEvent.eventType}-${combatEvent.timestamp}-live-${liveEventSequence}-${identity}`
+      : `${combatEvent.eventType}-${combatEvent.timestamp}-live-${liveEventSequence}`,
     timestamp: combatEvent.timestamp,
     type,
     source: combatEvent.source,
     target: combatEvent.target,
     abilityName: combatEvent.abilityName,
+    name: normalizeManualMarkerName(combatEvent.name),
   };
 }

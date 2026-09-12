@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn live_fragments_are_usable_segments() {
         let mut bytes = box_bytes(b"ftyp", b"isom");
-        bytes.extend_from_slice(&box_bytes(b"moov", b""));
+        bytes.extend_from_slice(&box_bytes(b"moov", &box_bytes(b"mvex", &[])));
         bytes.extend_from_slice(&box_bytes(b"moof", b""));
         bytes.extend_from_slice(&box_bytes(b"mdat", &[0, 1, 2, 3]));
         let probe = probe_mp4_reader(Cursor::new(bytes));

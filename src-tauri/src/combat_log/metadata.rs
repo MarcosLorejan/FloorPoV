@@ -139,6 +139,7 @@ impl RecordingMetadataAccumulator {
                 encounter_name: self.latest_encounter_name.clone(),
                 encounter_category: self.latest_encounter_category.clone(),
                 key_level: self.key_level,
+                name: None,
             });
         }
     }
@@ -319,7 +320,22 @@ impl RecordingMetadataAccumulator {
             encounter_name: event.encounter_name.clone(),
             encounter_category: event.encounter_category.clone(),
             key_level: event.key_level,
+            name: None,
         });
+    }
+
+    pub(crate) fn set_manual_marker_name(
+        &mut self,
+        timestamp_seconds: f64,
+        occurrence: usize,
+        name: Option<String>,
+    ) -> bool {
+        crate::recording::metadata::apply_manual_marker_name(
+            &mut self.important_events,
+            timestamp_seconds,
+            occurrence,
+            name,
+        )
     }
 
     fn reset_player_roster(&mut self) {

@@ -1131,6 +1131,7 @@ mod tests {
             encounter_name: None,
             encounter_category: None,
             key_level: None,
+            name: None,
         };
         let mut existing = vec![event.clone()];
         super::merge_important_events(&mut existing, vec![event]);
@@ -1158,6 +1159,7 @@ mod tests {
                 encounter_name: None,
                 encounter_category: None,
                 key_level: None,
+                name: None,
             },
             RecordingImportantEventMetadata {
                 timestamp_seconds: 3.0,
@@ -1171,6 +1173,7 @@ mod tests {
                 encounter_name: None,
                 encounter_category: None,
                 key_level: None,
+                name: None,
             },
         ];
         write_recording_metadata(&recording_path, &metadata).expect("write sidecar");
@@ -1243,6 +1246,7 @@ mod tests {
             encounter_name: None,
             encounter_category: None,
             key_level: None,
+            name: None,
         }];
         write_recording_metadata(&recording_path, &metadata).expect("write sidecar");
 

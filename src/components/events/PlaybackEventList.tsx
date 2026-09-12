@@ -1,14 +1,19 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
-import { ListVideo, Pencil, Trash2 } from "lucide-react";
+import { Check, ListVideo, Pencil, Trash2, X } from "lucide-react";
 import { useMarker } from "../../contexts/MarkerContext";
 import { useRecording } from "../../contexts/RecordingContext";
 import { useVideo } from "../../contexts/VideoContext";
 import { getErrorMessage } from "../../services/tauri";
 import {
   EVENT_SEEK_OFFSET_SECONDS,
+  getManualMarkerLabel,
   isCrowdControlEventType,
   isVideoSeekBarEvent,
+  MANUAL_MARKER_NAME_MAX_LENGTH,
+  manualMarkerOccurrenceIndex,
+  normalizeManualMarkerName,
   type GameEvent,
   type GameEventType,
 } from "../../types/events";
@@ -53,7 +58,7 @@ function getEventListDetail(event: GameEvent): string {
   }
 
   if (event.type === "manual") {
-    return "Manual marker";
+    return getManualMarkerLabel(event);
   }
 
   if (event.type === "bloodlust") {
@@ -80,14 +85,104 @@ function getEventListDetail(event: GameEvent): string {
   return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
 }
 
+interface ManualMarkerNameFormProps {
+  initialName: string;
+  isSaving: boolean;
+  errorMessage: string | null;
+  onSubmit: (name: string) => void;
+  onCancel: () => void;
+}
+
+function ManualMarkerNameForm({
+  initialName,
+  isSaving,
+  errorMessage,
+  onSubmit,
+  onCancel,
+}: ManualMarkerNameFormProps) {
+  const [draftName, setDraftName] = useState(initialName);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) {
+      return;
+    }
+
+    input.focus();
+    input.select();
+  }, []);
+
+  return (
+    <div className="px-3 pb-2">
+      <form
+        className="flex items-center gap-1.5"
+        onSubmit={(submitEvent) => {
+          submitEvent.preventDefault();
+          onSubmit(draftName);
+        }}
+      >
+        <input
+          ref={inputRef}
+          type="text"
+          value={draftName}
+          maxLength={MANUAL_MARKER_NAME_MAX_LENGTH}
+          placeholder="Name this marker"
+          disabled={isSaving}
+          aria-label="Marker name"
+          onChange={(changeEvent) => setDraftName(changeEvent.target.value)}
+          onKeyDown={(keyEvent) => {
+            if (keyEvent.key !== "Escape") {
+              return;
+            }
+
+            keyEvent.preventDefault();
+            onCancel();
+          }}
+          className="min-w-0 flex-1 rounded-sm border border-white/20 bg-black/30 px-2 py-1 text-xs text-neutral-100 transition-colors placeholder:text-neutral-500 focus:border-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:text-neutral-500"
+        />
+        <button
+          type="submit"
+          disabled={isSaving}
+          aria-label="Save marker name"
+          className="shrink-0 rounded-sm border border-white/20 bg-black/20 p-1 text-neutral-300 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Check className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          disabled={isSaving}
+          onClick={onCancel}
+          aria-label="Cancel marker name"
+          className="shrink-0 rounded-sm border border-transparent p-1 text-neutral-400 transition-colors hover:bg-white/10 hover:text-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </form>
+      {errorMessage && <p className="mt-1 text-[11px] text-rose-300">{errorMessage}</p>}
+    </div>
+  );
+}
+
 interface PlaybackEventListProps {
   variant?: "sidebar" | "overlay";
 }
 
 export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProps) {
   const { currentTime, loadedFilePath, seek, videoSrc } = useVideo();
-  const { isRecording } = useRecording();
-  const { events, filteredEvents, updateEvent, removeEvent } = useMarker();
+  const { isRecording, recordingPath } = useRecording();
+  const {
+    events,
+    filteredEvents,
+    updateEvent,
+    updateEventName,
+    removeEvent,
+    pendingRenameEventId,
+    clearPendingRename,
+  } = useMarker();
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState<GameEvent | null>(null);
   const [notePendingDelete, setNotePendingDelete] = useState<GameEvent | null>(null);
   const [isSavingNote, setIsSavingNote] = useState(false);
@@ -112,6 +207,64 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
 
     return activeId;
   }, [currentTime, listEvents]);
+
+  // A marker placed while the app is focused opens its editor right away. Markers placed
+  // from the background stay anonymous until the user renames them from this list.
+  useEffect(() => {
+    if (!pendingRenameEventId) {
+      return;
+    }
+
+    setEditingEventId(pendingRenameEventId);
+    setIsSavingName(false);
+    setNameError(null);
+    clearPendingRename();
+  }, [clearPendingRename, pendingRenameEventId]);
+
+  const stopEditing = useCallback(() => {
+    setEditingEventId(null);
+    setIsSavingName(false);
+    setNameError(null);
+  }, []);
+
+  const startEditing = useCallback((eventId: string) => {
+    setEditingEventId(eventId);
+    setIsSavingName(false);
+    setNameError(null);
+  }, []);
+
+  const saveMarkerName = useCallback(
+    async (markerEvent: GameEvent, draftName: string) => {
+      if (isSavingName) {
+        return;
+      }
+
+      const nextName = normalizeManualMarkerName(draftName);
+      if (nextName === markerEvent.name) {
+        stopEditing();
+        return;
+      }
+
+      setIsSavingName(true);
+      setNameError(null);
+
+      try {
+        await invoke("update_manual_marker_name", {
+          filePath: isRecording ? recordingPath : loadedFilePath ?? recordingPath,
+          timestampSeconds: markerEvent.timestamp,
+          occurrence: manualMarkerOccurrenceIndex(events, markerEvent),
+          name: nextName ?? null,
+        });
+        updateEventName(markerEvent.id, nextName);
+        stopEditing();
+      } catch (error) {
+        console.error("Failed to save manual marker name:", error);
+        setNameError(getErrorMessage(error));
+        setIsSavingName(false);
+      }
+    },
+    [events, isRecording, isSavingName, loadedFilePath, recordingPath, stopEditing, updateEventName],
+  );
 
   const handleEventClick = (timestamp: number) => {
     seek(Math.max(0, timestamp - EVENT_SEEK_OFFSET_SECONDS));
@@ -196,18 +349,20 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           <ul className="py-1">
             {listEvents.map((event) => {
               const isActive = event.id === activeEventId;
+              const isManualMarker = event.type === "manual";
+              const isEditing = isManualMarker && event.id === editingEventId;
 
               return (
-                <li key={event.id}>
+                <li key={event.id} className={isActive ? "bg-white/10" : undefined}>
                   <div
-                    className={`flex w-full items-start gap-1 px-1 py-1 ${
-                      isActive ? "bg-white/10" : "hover:bg-white/5"
+                    className={`flex w-full items-start gap-2 px-3 py-2 transition-colors ${
+                      isActive ? "" : "hover:bg-white/5"
                     }`}
                   >
                     <button
                       type="button"
                       onClick={() => handleEventClick(event.timestamp)}
-                      className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1 text-left transition-colors"
+                      className="flex min-w-0 flex-1 items-start gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
                       aria-current={isActive ? "true" : undefined}
                       aria-label={`Seek to ${EVENT_LIST_LABELS[event.type]} at ${formatTime(event.timestamp)}`}
                     >
@@ -228,6 +383,16 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
                         </span>
                       </span>
                     </button>
+                    {isManualMarker && !isEditing && (
+                      <button
+                        type="button"
+                        onClick={() => startEditing(event.id)}
+                        aria-label={`Name marker at ${formatTime(event.timestamp)}`}
+                        className="mt-0.5 shrink-0 rounded-sm border border-transparent p-1 text-neutral-500 transition-colors hover:bg-white/10 hover:text-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    )}
                     {event.type === "note" && canEditNotes ? (
                       <div className="flex shrink-0 items-center pt-1">
                         <button
@@ -255,6 +420,16 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
                       </div>
                     ) : null}
                   </div>
+                  {isEditing && (
+                    <ManualMarkerNameForm
+                      key={event.id}
+                      initialName={event.name ?? ""}
+                      isSaving={isSavingName}
+                      errorMessage={nameError}
+                      onSubmit={(draftName) => void saveMarkerName(event, draftName)}
+                      onCancel={stopEditing}
+                    />
+                  )}
                 </li>
               );
             })}

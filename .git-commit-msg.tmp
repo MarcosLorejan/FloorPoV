@@ -1,4 +1,4 @@
-chore(boss): merge origin/main after notes and import
+chore(markers): merge origin/main after notes and boss casts
 
-Keep boss-ability markers next to notes, crowd control, and combat
-log import. Seek-bar and visibility include both boss casts and notes.
+Keep named manual markers next to notes and boss abilities. Rename
+still uses occurrence index among manuals in the same timestamp window.

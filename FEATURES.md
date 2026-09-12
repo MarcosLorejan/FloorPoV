@@ -31,7 +31,7 @@
 
 ### UI/UX
 
-- [ ] Multiple video comparison view
+- [x] Multiple video comparison view
 - [ ] Export analysis report
 - [ ] Custom event markers
 - [ ] Keyboard shortcuts

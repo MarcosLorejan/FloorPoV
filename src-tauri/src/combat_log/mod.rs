@@ -20,6 +20,7 @@ pub struct CombatEvent {
     pub event_type: String,
     pub source: Option<String>,
     pub target: Option<String>,
+    pub ability_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -49,6 +50,7 @@ pub struct ParsedCombatEvent {
     pub source: Option<String>,
     pub target: Option<String>,
     pub target_kind: Option<String>,
+    pub ability_name: Option<String>,
     pub zone_name: Option<String>,
     pub encounter_name: Option<String>,
     pub encounter_category: Option<String>,

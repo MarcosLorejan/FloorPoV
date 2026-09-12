@@ -134,6 +134,7 @@ impl RecordingMetadataAccumulator {
                 source: None,
                 target: None,
                 target_kind: None,
+                ability_name: None,
                 zone_name: self.zone_name.clone(),
                 encounter_name: self.latest_encounter_name.clone(),
                 encounter_category: self.latest_encounter_category.clone(),
@@ -254,6 +255,7 @@ impl RecordingMetadataAccumulator {
             source: None,
             target: None,
             target_kind: None,
+            ability_name: None,
             zone_name: self.zone_name.clone(),
             encounter_name: self.latest_encounter_name.clone(),
             encounter_category: self.latest_encounter_category.clone(),
@@ -284,7 +286,9 @@ impl RecordingMetadataAccumulator {
             .entry(event.event_type.clone())
             .or_insert(0) += 1;
 
-        update_option_if_some(&mut self.zone_name, event.zone_name.as_ref());
+        if !self.context.in_challenge_mode {
+            update_option_if_some(&mut self.zone_name, event.zone_name.as_ref());
+        }
         update_option_if_some(
             &mut self.latest_encounter_name,
             event.encounter_name.as_ref(),
@@ -310,6 +314,7 @@ impl RecordingMetadataAccumulator {
             source: event.source.clone(),
             target: event.target.clone(),
             target_kind: event.target_kind.clone(),
+            ability_name: event.ability_name.clone(),
             zone_name: event.zone_name.clone(),
             encounter_name: event.encounter_name.clone(),
             encounter_category: event.encounter_category.clone(),
@@ -492,6 +497,8 @@ fn is_structural_event_type(event_type: &str) -> bool {
             | EVENT_ENCOUNTER_END
             | "BLOODLUST"
             | "COMBAT_RES"
+            | "CROWD_CONTROL"
+            | "CROWD_CONTROL_BREAK"
     )
 }
 

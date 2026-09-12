@@ -13,15 +13,19 @@ import { EventTooltip } from "./EventTooltip";
 export function PlayerActionTimelines() {
   const { currentTime, duration, seek } = useVideo();
   const { recordingDuration } = useRecording();
-  const { events, players } = useMarker();
+  const { filteredEvents, players } = useMarker();
   const reduceMotion = useReducedMotion();
   const [hoveredEvent, setHoveredEvent] = useState<GameEvent | null>(null);
   const [hoveredLaneId, setHoveredLaneId] = useState<string | null>(null);
   const [tooltipX, setTooltipX] = useState(0);
 
-  const lanes = useMemo(() => buildPlayerActionLanes(players, events), [events, players]);
-  const timelineDuration = duration > 0 ? duration : recordingDuration;
-  const playheadPercent = timelineDuration > 0 ? (currentTime / timelineDuration) * 100 : 0;
+  const lanes = useMemo(
+    () => buildPlayerActionLanes(players, filteredEvents),
+    [filteredEvents, players],
+  );
+  const hasVideoTimeline = duration > 0;
+  const timelineDuration = hasVideoTimeline ? duration : recordingDuration;
+  const playheadPercent = hasVideoTimeline ? (currentTime / duration) * 100 : 0;
 
   const handleEventClick = (timestamp: number) => {
     seek(Math.max(0, timestamp - EVENT_SEEK_OFFSET_SECONDS));
@@ -74,7 +78,7 @@ export function PlayerActionTimelines() {
                       : `${lane.displayName} action timeline`
                   }
                 >
-                  {timelineDuration > 0 && (
+                  {hasVideoTimeline && (
                     <div
                       className="pointer-events-none absolute top-0 bottom-0 z-10 w-px bg-white/45"
                       style={{ left: `${playheadPercent}%` }}

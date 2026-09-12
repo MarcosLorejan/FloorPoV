@@ -30,6 +30,8 @@ pub struct RecordingImportantEventMetadata {
     pub target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ability_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zone_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -164,6 +166,40 @@ impl RecordingMetadata {
         self.important_events_dropped_count = snapshot.important_events_dropped_count;
         self.players = snapshot.players;
     }
+
+    fn is_mythic_plus(&self) -> bool {
+        match self.encounter_category.as_deref() {
+            Some("mythicPlus") => true,
+            Some("raid") | Some("pvp") => false,
+            _ => self.key_level.is_some(),
+        }
+    }
+
+    /// M+ combat logs report floor names (Augurs' Terrace) after MAP_CHANGE.
+    /// Library titles should keep the dungeon from the start of the key.
+    pub(crate) fn library_zone_name(&self) -> Option<String> {
+        let trimmed_zone_name = |value: Option<&String>| {
+            value
+                .map(|name| name.trim())
+                .filter(|name| !name.is_empty())
+                .map(str::to_string)
+        };
+
+        if !self.is_mythic_plus() {
+            return trimmed_zone_name(self.zone_name.as_ref());
+        }
+
+        self.important_events
+            .iter()
+            .find_map(|event| trimmed_zone_name(event.zone_name.as_ref()))
+            .or_else(|| trimmed_zone_name(self.zone_name.as_ref()))
+    }
+
+    fn apply_library_zone_name(&mut self) {
+        if let Some(zone_name) = self.library_zone_name() {
+            self.zone_name = Some(zone_name);
+        }
+    }
 }
 
 impl RecordingMetadataSnapshot {
@@ -199,12 +235,13 @@ pub(crate) fn read_recording_metadata(
         }
     };
 
-    let metadata = serde_json::from_str::<RecordingMetadata>(&raw_json).map_err(|error| {
+    let mut metadata = serde_json::from_str::<RecordingMetadata>(&raw_json).map_err(|error| {
         format!(
             "Failed to parse recording metadata '{}': {error}",
             sidecar_path.display()
         )
     })?;
+    metadata.apply_library_zone_name();
 
     Ok(Some(metadata))
 }
@@ -302,17 +339,12 @@ fn try_rename_finalized_recording(output_path: &Path) -> Result<Option<PathBuf>,
     let Some(key_level) = metadata.key_level else {
         return Ok(None);
     };
-    let Some(zone_name) = metadata
-        .zone_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-    else {
+    let Some(zone_name) = metadata.library_zone_name() else {
         return Ok(None);
     };
 
     let timestamp_label = timestamp_label_from_recording_path(output_path);
-    let Some(stem) = library_filename_stem(zone_name, key_level, &timestamp_label) else {
+    let Some(stem) = library_filename_stem(&zone_name, key_level, &timestamp_label) else {
         return Ok(None);
     };
 
@@ -656,6 +688,46 @@ mod tests {
     }
 
     #[test]
+    fn library_zone_prefers_the_mythic_plus_start_zone_over_later_floors() {
+        let mut metadata = RecordingMetadata::new(Path::new("augurs-terrace-13.mp4"));
+        metadata.zone_name = Some("Augurs' Terrace".to_string());
+        metadata.encounter_category = Some("mythicPlus".to_string());
+        metadata.key_level = Some(13);
+        metadata
+            .important_events
+            .push(RecordingImportantEventMetadata {
+                timestamp_seconds: 17.0,
+                log_timestamp: None,
+                event_type: "BLOODLUST".to_string(),
+                source: None,
+                target: None,
+                target_kind: None,
+                ability_name: None,
+                zone_name: Some("Murder Row".to_string()),
+                encounter_name: None,
+                encounter_category: Some("mythicPlus".to_string()),
+                key_level: Some(13),
+            });
+        metadata
+            .important_events
+            .push(RecordingImportantEventMetadata {
+                timestamp_seconds: 1600.0,
+                log_timestamp: None,
+                event_type: "SPELL_INTERRUPT".to_string(),
+                source: None,
+                target: None,
+                target_kind: None,
+                ability_name: None,
+                zone_name: Some("Augurs' Terrace".to_string()),
+                encounter_name: None,
+                encounter_category: Some("mythicPlus".to_string()),
+                key_level: Some(13),
+            });
+
+        assert_eq!(metadata.library_zone_name().as_deref(), Some("Murder Row"));
+    }
+
+    #[test]
     fn roundtrips_important_events_and_counts() {
         let temp_directory = unique_temp_directory();
         std::fs::create_dir_all(&temp_directory)
@@ -675,6 +747,7 @@ mod tests {
                 source: Some("PlayerOne".to_string()),
                 target: Some("Boss".to_string()),
                 target_kind: Some("NPC".to_string()),
+                ability_name: Some("Pummel".to_string()),
                 zone_name: Some("Test Zone".to_string()),
                 encounter_name: Some("Test Encounter".to_string()),
                 encounter_category: Some("raid".to_string()),
@@ -694,6 +767,10 @@ mod tests {
 
         assert_eq!(loaded_metadata.important_events.len(), 1);
         assert_eq!(
+            loaded_metadata.important_events[0].ability_name.as_deref(),
+            Some("Pummel")
+        );
+        assert_eq!(
             loaded_metadata
                 .important_event_counts
                 .get("SPELL_INTERRUPT")
@@ -709,6 +786,29 @@ mod tests {
         std::fs::remove_file(&recording_path).expect("Failed to remove test recording file");
         std::fs::remove_dir_all(&temp_directory)
             .expect("Failed to remove temporary metadata test directory");
+    }
+
+    #[test]
+    fn loads_important_events_when_ability_name_is_missing() {
+        let metadata = serde_json::from_str::<RecordingMetadata>(
+            r#"{
+                "schemaVersion": 2,
+                "recordingFile": "clip.mp4",
+                "capturedAtUnix": 1,
+                "importantEvents": [{
+                    "timestampSeconds": 16.0,
+                    "eventType": "CROWD_CONTROL",
+                    "source": "PaladinOne",
+                    "target": "WarriorOne",
+                    "targetKind": "PLAYER"
+                }]
+            }"#,
+        )
+        .expect("legacy sidecars without abilityName should still load");
+
+        assert_eq!(metadata.important_events.len(), 1);
+        assert_eq!(metadata.important_events[0].ability_name, None);
+        assert_eq!(metadata.important_events[0].event_type, "CROWD_CONTROL");
     }
 
     #[test]

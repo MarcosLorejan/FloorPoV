@@ -7,8 +7,10 @@ import { useVideo } from "../../contexts/VideoContext";
 import { getErrorMessage } from "../../services/tauri";
 import {
   EVENT_SEEK_OFFSET_SECONDS,
+  isCrowdControlEventType,
   isVideoSeekBarEvent,
   type GameEvent,
+  type GameEventType,
 } from "../../types/events";
 import { formatTime, formatUnitName } from "../../utils/format";
 import { deleteRecordingNote, saveRecordingNote } from "../../utils/recording-notes";
@@ -16,15 +18,28 @@ import { DeleteConfirmDialog } from "../ui/DeleteConfirmDialog";
 import { EventMarker, EventTypeFilter } from "./EventMarker";
 import { NoteEditorDialog } from "./NoteEditorDialog";
 
-const EVENT_LIST_LABELS: Record<GameEvent["type"], string> = {
+const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   death: "Death",
   interrupt: "Interrupt",
   manual: "Marker",
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  crowdControl: "Crowd Control",
+  crowdControlBreak: "CC Break",
   note: "Note",
 };
+
+const EVENT_LIST_FILTER_TYPES: GameEventType[] = [
+  "death",
+  "interrupt",
+  "manual",
+  "bloodlust",
+  "combatRes",
+  "crowdControl",
+  "crowdControlBreak",
+  "note",
+];
 
 function getEventListDetail(event: GameEvent): string {
   if (event.type === "death") {
@@ -45,6 +60,11 @@ function getEventListDetail(event: GameEvent): string {
 
   if (event.type === "combatRes") {
     return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+  }
+
+  if (isCrowdControlEventType(event.type)) {
+    const actors = `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+    return event.abilityName ? `${actors} · ${event.abilityName}` : actors;
   }
 
   if (event.type === "note") {
@@ -146,7 +166,7 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           <ListVideo className="h-3.5 w-3.5 text-neutral-300" />
           Events
         </div>
-        <EventTypeFilter types={["death", "interrupt", "manual", "bloodlust", "combatRes", "note"]} />
+        <EventTypeFilter types={EVENT_LIST_FILTER_TYPES} />
         {noteError && !editingNote ? (
           <p className="text-xs text-rose-300" role="alert">
             {noteError}
@@ -156,11 +176,11 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, bloodlust, combat res, markers, and notes.
+            Load a recording to see deaths, interrupts, crowd control, markers, and notes.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, bloodlust, combat res, markers, or notes in this recording.
+            No deaths, interrupts, crowd control, markers, or notes in this recording.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>

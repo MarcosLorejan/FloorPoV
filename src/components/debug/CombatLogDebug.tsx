@@ -9,8 +9,10 @@ import {
   Heart,
   ShieldOff,
   Skull,
+  Snowflake,
   Sparkles,
   Sword,
+  Unlock,
   Zap,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
@@ -36,6 +38,7 @@ interface EncounterTimelineMarker {
   timestamp: string;
   source?: string;
   target?: string;
+  abilityName?: string;
 }
 
 interface EncounterTimelineMarkerBucket {
@@ -90,6 +93,10 @@ function getEventMarkerClassName(eventType: string): string {
       return "bg-sky-200 border-sky-50/85";
     case "COMBAT_RES":
       return "bg-emerald-200 border-emerald-50/85";
+    case "CROWD_CONTROL":
+      return "bg-violet-200 border-violet-50/85";
+    case "CROWD_CONTROL_BREAK":
+      return "bg-indigo-200 border-indigo-50/85";
     case "SPELL_DISPEL":
       return "bg-neutral-300 border-neutral-100/85";
     default:
@@ -109,6 +116,10 @@ function getEventMarkerIcon(eventType: string) {
       return Zap;
     case "COMBAT_RES":
       return Heart;
+    case "CROWD_CONTROL":
+      return Snowflake;
+    case "CROWD_CONTROL_BREAK":
+      return Unlock;
     case "SPELL_DISPEL":
       return Sparkles;
     default:
@@ -128,11 +139,31 @@ function getEventIconClassName(eventType: string): string {
       return "text-sky-950";
     case "COMBAT_RES":
       return "text-emerald-950";
+    case "CROWD_CONTROL":
+      return "text-violet-950";
+    case "CROWD_CONTROL_BREAK":
+      return "text-indigo-950";
     case "SPELL_DISPEL":
       return "text-neutral-950";
     default:
       return "text-neutral-900";
   }
+}
+
+function getTimelineMarkerTooltipLines(marker: EncounterTimelineMarker): string[] {
+  const lines = [
+    `Timestamp: ${marker.timestamp}`,
+    marker.source || marker.target
+      ? `Actors: ${marker.source || "Unknown"} -> ${marker.target || "Unknown"}`
+      : "Actors: Unknown",
+  ];
+
+  if (marker.abilityName) {
+    lines.push(`Ability: ${marker.abilityName}`);
+  }
+
+  lines.push(`Line: ${marker.lineNumber}`);
+  return lines;
 }
 
 export function CombatLogDebug() {
@@ -262,6 +293,8 @@ export function CombatLogDebug() {
       "SPELL_DISPEL",
       "BLOODLUST",
       "COMBAT_RES",
+      "CROWD_CONTROL",
+      "CROWD_CONTROL_BREAK",
     ]);
     const markers = parseResult.parsedEvents
       .filter((event) => importantEventTypes.has(event.eventType))
@@ -272,6 +305,7 @@ export function CombatLogDebug() {
         timestamp: event.logTimestamp,
         source: event.source,
         target: event.target,
+        abilityName: event.abilityName,
       }));
 
     const markerBuckets = new Map<string, EncounterTimelineMarkerBucket>();
@@ -427,7 +461,16 @@ export function CombatLogDebug() {
                   Encounter Timeline
                 </h2>
                 <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-neutral-400">
-                  {["PARTY_KILL", "UNIT_DIED", "SPELL_INTERRUPT", "BLOODLUST", "COMBAT_RES", "SPELL_DISPEL"].map((eventType) => {
+                  {[
+                    "PARTY_KILL",
+                    "UNIT_DIED",
+                    "SPELL_INTERRUPT",
+                    "BLOODLUST",
+                    "COMBAT_RES",
+                    "CROWD_CONTROL",
+                    "CROWD_CONTROL_BREAK",
+                    "SPELL_DISPEL",
+                  ].map((eventType) => {
                     const MarkerIcon = getEventMarkerIcon(eventType);
                     return (
                       <span
@@ -503,22 +546,18 @@ export function CombatLogDebug() {
                                   className={`absolute top-1/2 inline-flex h-4 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border transition-transform duration-150 hover:scale-110 ${getEventMarkerClassName(marker.eventType)}`}
                                   style={{ left: `${markerPercent}%` }}
                                   onMouseEnter={(event) =>
-                                    showTimelineTooltip(event, getEventTypeLabel(marker.eventType), [
-                                      `Timestamp: ${marker.timestamp}`,
-                                      marker.source || marker.target
-                                        ? `Actors: ${marker.source || "Unknown"} -> ${marker.target || "Unknown"}`
-                                        : "Actors: Unknown",
-                                      `Line: ${marker.lineNumber}`,
-                                    ])
+                                    showTimelineTooltip(
+                                      event,
+                                      getEventTypeLabel(marker.eventType),
+                                      getTimelineMarkerTooltipLines(marker),
+                                    )
                                   }
                                   onMouseMove={(event) =>
-                                    showTimelineTooltip(event, getEventTypeLabel(marker.eventType), [
-                                      `Timestamp: ${marker.timestamp}`,
-                                      marker.source || marker.target
-                                        ? `Actors: ${marker.source || "Unknown"} -> ${marker.target || "Unknown"}`
-                                        : "Actors: Unknown",
-                                      `Line: ${marker.lineNumber}`,
-                                    ])
+                                    showTimelineTooltip(
+                                      event,
+                                      getEventTypeLabel(marker.eventType),
+                                      getTimelineMarkerTooltipLines(marker),
+                                    )
                                   }
                                 >
                                   <MarkerIcon
@@ -582,6 +621,7 @@ export function CombatLogDebug() {
                         <th className="px-3 py-2 font-medium">Event</th>
                         <th className="px-3 py-2 font-medium">Source</th>
                         <th className="px-3 py-2 font-medium">Target</th>
+                        <th className="px-3 py-2 font-medium">Ability</th>
                         <th className="px-3 py-2 font-medium">Context</th>
                       </tr>
                     </thead>
@@ -606,6 +646,7 @@ export function CombatLogDebug() {
                               "-"
                             )}
                           </td>
+                          <td className="px-3 py-2 text-neutral-300">{event.abilityName || "-"}</td>
                           <td className="px-3 py-2 text-neutral-300">
                             <span className="block text-[11px] text-neutral-400">
                               Zone: {event.zoneName || "Unknown"}
@@ -618,7 +659,7 @@ export function CombatLogDebug() {
                       ))}
                       {parseResult.parsedEvents.length === 0 && (
                         <tr>
-                          <td className="px-3 py-3 text-neutral-500" colSpan={6}>
+                          <td className="px-3 py-3 text-neutral-500" colSpan={7}>
                             No important happenings found in this file.
                           </td>
                         </tr>

@@ -36,6 +36,8 @@ pub struct RecordingImportantEventMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ability_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub zone_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encounter_name: Option<String>,
@@ -828,6 +830,7 @@ mod tests {
                 target: None,
                 target_kind: None,
                 ability_name: None,
+                amount: None,
                 zone_name: Some("Murder Row".to_string()),
                 encounter_name: None,
                 encounter_category: Some("mythicPlus".to_string()),
@@ -844,6 +847,7 @@ mod tests {
                 target: None,
                 target_kind: None,
                 ability_name: None,
+                amount: None,
                 zone_name: Some("Augurs' Terrace".to_string()),
                 encounter_name: None,
                 encounter_category: Some("mythicPlus".to_string()),
@@ -875,6 +879,7 @@ mod tests {
                 target: Some("Boss".to_string()),
                 target_kind: Some("NPC".to_string()),
                 ability_name: Some("Pummel".to_string()),
+                amount: None,
                 zone_name: Some("Test Zone".to_string()),
                 encounter_name: Some("Test Encounter".to_string()),
                 encounter_category: Some("raid".to_string()),
@@ -1039,6 +1044,7 @@ mod tests {
             target: None,
             target_kind: None,
             ability_name: None,
+            amount: None,
             zone_name: None,
             encounter_name: None,
             encounter_category: None,
@@ -1078,6 +1084,7 @@ mod tests {
                 target: Some("PlayerOne".to_string()),
                 target_kind: Some("PLAYER".to_string()),
                 ability_name: None,
+                amount: None,
                 zone_name: None,
                 encounter_name: None,
                 encounter_category: None,

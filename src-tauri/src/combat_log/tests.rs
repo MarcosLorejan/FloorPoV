@@ -524,6 +524,148 @@ fn crowd_control_apply_emits_live_event_with_ability_name() {
 }
 
 #[test]
+fn attaches_killing_blow_amount_to_player_death() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let damage_line = build_player_spell_damage_line("Player-1111-00000003", 1_250_000, 80_000);
+    accumulator.consume_combat_log_line(&damage_line, 8.0);
+
+    let death_line = build_player_death_line("2/22 20:15:19.000", "Player-1111-00000003");
+    accumulator.consume_combat_log_line(&death_line, 8.2);
+
+    let snapshot = accumulator.snapshot();
+    let death = snapshot
+        .important_events
+        .iter()
+        .find(|event| event.event_type == "UNIT_DIED")
+        .expect("death should be persisted");
+    assert_eq!(death.amount, Some(1_250_000));
+    assert!(
+        snapshot
+            .important_events
+            .iter()
+            .all(|event| event.event_type != "BIG_HIT"),
+        "killing blows should stay on the death marker instead of a separate big hit"
+    );
+}
+
+#[test]
+fn exact_killing_blow_does_not_emit_a_duplicate_big_hit() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let damage_line = build_player_spell_damage_line("Player-1111-00000003", 1_000_000, 0);
+    accumulator.consume_combat_log_line(&damage_line, 8.0);
+
+    let death_line = build_player_death_line("2/22 20:15:19.000", "Player-1111-00000003");
+    accumulator.consume_combat_log_line(&death_line, 8.2);
+
+    let snapshot = accumulator.snapshot();
+    let death = snapshot
+        .important_events
+        .iter()
+        .find(|event| event.event_type == "UNIT_DIED")
+        .expect("death should be persisted");
+    assert_eq!(death.amount, Some(1_000_000));
+    assert!(
+        snapshot
+            .important_events
+            .iter()
+            .all(|event| event.event_type != "BIG_HIT"),
+        "exact killing blows (overkill 0) must not also persist as a big hit"
+    );
+}
+
+#[test]
+fn persists_player_big_hit_and_heal_markers() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let small_hit = build_player_spell_damage_line("Player-1111-00000003", 12_000, -1);
+    accumulator.consume_combat_log_line(&small_hit, 4.0);
+
+    let big_hit = build_player_spell_damage_line("Player-1111-00000003", 2_400_000, -1);
+    accumulator.consume_combat_log_line(&big_hit, 5.0);
+
+    let npc_hit = build_line(
+        "SPELL_DAMAGE",
+        &[
+            "Player-1111-00000001",
+            "\"MageOne-NA\"",
+            "0x514",
+            "0x0",
+            "Creature-0-0-0-0-1002-0000000000",
+            "\"Enemy1\"",
+            "0x10a48",
+            "0x0",
+            "133",
+            "\"Fireball\"",
+            "4",
+            "3000000",
+            "0",
+            "4",
+            "0",
+            "0",
+            "0",
+            "nil",
+        ],
+    );
+    accumulator.consume_combat_log_line(&npc_hit, 5.5);
+
+    let periodic = build_line(
+        "SPELL_PERIODIC_DAMAGE",
+        &[
+            "Creature-0-0-0-0-2000-0000000000",
+            "\"Boss\"",
+            "0x10a48",
+            "0x0",
+            "Player-1111-00000003",
+            "\"DeadOne-NA\"",
+            "0x514",
+            "0x0",
+            "589",
+            "\"Shadow Word: Pain\"",
+            "32",
+            "1500000",
+            "0",
+            "32",
+            "0",
+            "0",
+            "0",
+            "nil",
+        ],
+    );
+    accumulator.consume_combat_log_line(&periodic, 6.0);
+
+    let big_heal = build_player_spell_heal_line("Player-1111-00000003", 1_800_000);
+    accumulator.consume_combat_log_line(&big_heal, 7.0);
+
+    let snapshot = accumulator.snapshot();
+    let big_hits: Vec<_> = snapshot
+        .important_events
+        .iter()
+        .filter(|event| event.event_type == "BIG_HIT")
+        .collect();
+    let heals: Vec<_> = snapshot
+        .important_events
+        .iter()
+        .filter(|event| event.event_type == "HEAL")
+        .collect();
+
+    assert_eq!(
+        big_hits.len(),
+        1,
+        "only the surviving player spike should persist"
+    );
+    assert_eq!(big_hits[0].amount, Some(2_400_000));
+    assert_eq!(big_hits[0].target.as_deref(), Some("DeadOne-NA"));
+    assert_eq!(heals.len(), 1);
+    assert_eq!(heals[0].amount, Some(1_800_000));
+    assert_eq!(heals[0].target.as_deref(), Some("DeadOne-NA"));
+}
+
+#[test]
 fn ignores_unrelated_spell_cast_success() {
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.begin_recording_session(0.0);
@@ -1498,6 +1640,55 @@ fn build_player_death_line(log_timestamp: &str, dest_guid: &str) -> String {
     )
 }
 
+fn build_player_spell_damage_line(dest_guid: &str, amount: u64, overkill: i64) -> String {
+    build_line(
+        "SPELL_DAMAGE",
+        &[
+            "Creature-0-0-0-0-2000-0000000000",
+            "\"Boss\"",
+            "0x10a48",
+            "0x0",
+            dest_guid,
+            "\"DeadOne-NA\"",
+            "0x514",
+            "0x0",
+            "133",
+            "\"Fireball\"",
+            "4",
+            &amount.to_string(),
+            &overkill.to_string(),
+            "4",
+            "0",
+            "0",
+            "0",
+            "nil",
+        ],
+    )
+}
+
+fn build_player_spell_heal_line(dest_guid: &str, amount: u64) -> String {
+    build_line(
+        "SPELL_HEAL",
+        &[
+            "Player-1111-00000002",
+            "\"PriestOne-NA\"",
+            "0x514",
+            "0x0",
+            dest_guid,
+            "\"DeadOne-NA\"",
+            "0x514",
+            "0x0",
+            "2061",
+            "\"Flash Heal\"",
+            "2",
+            &amount.to_string(),
+            "0",
+            "0",
+            "1",
+        ],
+    )
+}
+
 fn build_party_kill_line(index: usize) -> String {
     build_line(
         "PARTY_KILL",
@@ -1631,6 +1822,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             target: Some("Atlas".to_string()),
             target_kind: Some("PLAYER".to_string()),
             ability_name: None,
+            amount: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: None,
             encounter_category: None,
@@ -1645,6 +1837,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             target: None,
             target_kind: None,
             ability_name: None,
+            amount: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),
@@ -1659,6 +1852,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             target: None,
             target_kind: None,
             ability_name: None,
+            amount: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),

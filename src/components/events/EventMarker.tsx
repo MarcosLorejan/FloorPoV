@@ -1,6 +1,8 @@
 import {
+  Crosshair,
   Flag,
   Heart,
+  HeartPulse,
   ShieldOff,
   Skull,
   Snowflake,
@@ -38,6 +40,8 @@ const ICONS: Record<GameEventType, React.ComponentType<{ className?: string }>> 
   interrupt: ShieldOff,
   bloodlust: Zap,
   combatRes: Heart,
+  bigHit: Crosshair,
+  heal: HeartPulse,
   bossAbility: Sparkles,
   crowdControl: Snowflake,
   crowdControlBreak: Unlock,
@@ -68,6 +72,14 @@ const MARKER_CLASS_NAMES: Record<GameEventType, Record<EventMarkerVariant, strin
   combatRes: {
     compact: "rounded-full bg-emerald-400 text-emerald-950",
     detailed: "rounded-full border border-emerald-200/40 bg-emerald-400 text-emerald-950",
+  },
+  bigHit: {
+    compact: "rounded-full bg-orange-400 text-orange-950",
+    detailed: "rounded-full border border-orange-200/40 bg-orange-400 text-orange-950",
+  },
+  heal: {
+    compact: "rounded-full bg-teal-400 text-teal-950",
+    detailed: "rounded-full border border-teal-200/40 bg-teal-400 text-teal-950",
   },
   bossAbility: {
     compact: "rounded-full bg-fuchsia-400 text-fuchsia-950",
@@ -106,6 +118,8 @@ const EVENT_TYPE_FILTER_LABELS: Record<GameEventType, string> = {
   kill: "Kills",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  bigHit: "Big Hits",
+  heal: "Heals",
   bossAbility: "Boss abilities",
   crowdControl: "Crowd Control",
   crowdControlBreak: "CC Breaks",

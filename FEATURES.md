@@ -9,7 +9,7 @@
 - [ ] Interrupts/debuffs tracking
 - [ ] Crowd control events (stuns, roots, silences)
 - [ ] Defensive cooldown usage
-- [ ] Damage/healing breakdown per event
+- [x] Damage/healing breakdown per event
 - [ ] Event filtering by type
 
 ### Video Player Video controls panel (

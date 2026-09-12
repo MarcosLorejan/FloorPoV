@@ -5,6 +5,8 @@ export type GameEventType =
   | "interrupt"
   | "bloodlust"
   | "combatRes"
+  | "bigHit"
+  | "heal"
   | "bossAbility"
   | "crowdControl"
   | "crowdControlBreak"
@@ -17,6 +19,7 @@ export interface GameEvent {
   source?: string;
   target?: string;
   targetKind?: string;
+  amount?: number;
   abilityName?: string;
   name?: string;
   note?: string;
@@ -29,6 +32,7 @@ export interface RecordingImportantEventMetadata {
   source?: string;
   target?: string;
   targetKind?: string;
+  amount?: number;
   abilityName?: string;
   zoneName?: string;
   encounterName?: string;
@@ -78,6 +82,7 @@ export interface CombatEvent {
   eventType: string;
   source?: string;
   target?: string;
+  amount?: number;
   abilityName?: string;
   name?: string;
 }
@@ -191,6 +196,8 @@ const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "SPELL_INTERRUPT",
   "BLOODLUST",
   "COMBAT_RES",
+  "BIG_HIT",
+  "HEAL",
   "BOSS_ABILITY",
   "CROWD_CONTROL",
   "CROWD_CONTROL_BREAK",
@@ -238,6 +245,14 @@ function mapEventTypeToGameEventType(eventType: string): GameEventType {
 
   if (eventType === "COMBAT_RES") {
     return "combatRes";
+  }
+
+  if (eventType === "BIG_HIT") {
+    return "bigHit";
+  }
+
+  if (eventType === "HEAL") {
+    return "heal";
   }
 
   if (eventType === "BOSS_ABILITY") {
@@ -344,6 +359,7 @@ export function convertRecordingMetadataToGameEvents(
         source: importantEvent.source,
         target: importantEvent.target,
         targetKind: importantEvent.targetKind,
+        amount: importantEvent.amount,
         abilityName: importantEvent.abilityName,
         name: normalizeManualMarkerName(importantEvent.name),
       }];
@@ -398,6 +414,8 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
     event.type === "interrupt" ||
     event.type === "bloodlust" ||
     event.type === "combatRes" ||
+    event.type === "bigHit" ||
+    event.type === "heal" ||
     event.type === "bossAbility" ||
     isCrowdControlEventType(event.type) ||
     event.type === "note"
@@ -418,6 +436,8 @@ export function shouldShowGameEvent(
     event.type === "interrupt" ||
     event.type === "bloodlust" ||
     event.type === "combatRes" ||
+    event.type === "bigHit" ||
+    event.type === "heal" ||
     event.type === "bossAbility" ||
     event.type === "note"
   ) {
@@ -456,6 +476,7 @@ export function convertCombatEvent(combatEvent: CombatEvent): GameEvent {
     type,
     source: combatEvent.source,
     target: combatEvent.target,
+    amount: combatEvent.amount,
     abilityName: combatEvent.abilityName,
     name: normalizeManualMarkerName(combatEvent.name),
   };

@@ -1,4 +1,4 @@
-chore(markers): merge origin/main after notes and boss casts
+chore(combat): merge origin/main after notes and named markers
 
-Keep named manual markers next to notes and boss abilities. Rename
-still uses occurrence index among manuals in the same timestamp window.
+Keep compact hit and heal amounts next to boss casts, notes, and
+named markers. Killing blows still use overkill >= 0.

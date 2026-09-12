@@ -19,7 +19,7 @@ import { useClearStalePlayback } from "../../hooks/useClearStalePlayback";
 import { RecordingMetadata } from "../../types/events";
 import { RecordingInfo } from "../../types/recording";
 import { type GameMode } from "../../types/ui";
-import { formatBytes, formatDate, formatEncounterCategory, formatTime, getEventTypeLabel } from "../../utils/format";
+import { formatBytes, formatCompactAmount, formatDate, formatEncounterCategory, formatTime, getEventTypeLabel } from "../../utils/format";
 import { getRecordingDisplayTitle } from "../../utils/recording-title";
 import { GameEvents } from "../events/GameEvents";
 import { PlaybackEventList } from "../events/PlaybackEventList";
@@ -572,6 +572,7 @@ export function GameModePage({ gameMode }: GameModePageProps) {
                                         <th className="px-2 py-1.5 font-medium">Ability</th>
                                         <th className="px-2 py-1.5 font-medium">Source</th>
                                         <th className="px-2 py-1.5 font-medium">Target</th>
+                                        <th className="px-2 py-1.5 font-medium">Amount</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -591,6 +592,9 @@ export function GameModePage({ gameMode }: GameModePageProps) {
                                           </td>
                                           <td className="px-2 py-1.5 text-neutral-300">{event.source || "-"}</td>
                                           <td className="px-2 py-1.5 text-neutral-300">{event.target || "-"}</td>
+                                          <td className="px-2 py-1.5 font-mono text-neutral-300">
+                                            {formatCompactAmount(event.amount) || "-"}
+                                          </td>
                                         </tr>
                                       ))}
                                     </tbody>

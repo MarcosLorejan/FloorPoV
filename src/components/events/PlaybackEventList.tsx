@@ -17,7 +17,7 @@ import {
   type GameEvent,
   type GameEventType,
 } from "../../types/events";
-import { formatTime, formatUnitName } from "../../utils/format";
+import { formatCompactAmount, formatTime, formatUnitName } from "../../utils/format";
 import { deleteRecordingNote, saveRecordingNote } from "../../utils/recording-notes";
 import { DeleteConfirmDialog } from "../ui/DeleteConfirmDialog";
 import { EventMarker, EventTypeFilter } from "./EventMarker";
@@ -30,6 +30,8 @@ const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  bigHit: "Big Hit",
+  heal: "Heal",
   bossAbility: "Boss Ability",
   crowdControl: "Crowd Control",
   crowdControlBreak: "CC Break",
@@ -42,6 +44,8 @@ const EVENT_LIST_FILTER_TYPES: GameEventType[] = [
   "manual",
   "bloodlust",
   "combatRes",
+  "bigHit",
+  "heal",
   "bossAbility",
   "crowdControl",
   "crowdControlBreak",
@@ -66,6 +70,10 @@ function getEventListDetail(event: GameEvent): string {
   }
 
   if (event.type === "combatRes") {
+    return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+  }
+
+  if (event.type === "bigHit" || event.type === "heal") {
     return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
   }
 
@@ -335,13 +343,14 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, crowd control, boss abilities, markers, and
-            notes.
+            Load a recording to see deaths, interrupts, crowd control, boss abilities, hits, heals,
+            markers, and notes.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, bloodlust, combat res, crowd control, boss abilities, markers, or
-            notes in this recording. Import a combat log from the player controls to add them.
+            No deaths, interrupts, bloodlust, combat res, crowd control, boss abilities, hits,
+            heals, markers, or notes in this recording. Import a combat log from the player
+            controls to add them.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>
@@ -349,6 +358,7 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           <ul className="py-1">
             {listEvents.map((event) => {
               const isActive = event.id === activeEventId;
+              const compactAmount = formatCompactAmount(event.amount);
               const isManualMarker = event.type === "manual";
               const isEditing = isManualMarker && event.id === editingEventId;
 
@@ -374,8 +384,19 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
                           <span className="text-xs font-medium text-neutral-100">
                             {EVENT_LIST_LABELS[event.type]}
                           </span>
-                          <span className="shrink-0 font-mono text-[11px] text-neutral-400">
-                            {formatTime(event.timestamp)}
+                          <span className="flex shrink-0 items-baseline gap-2">
+                            {compactAmount ? (
+                              <span
+                                className={`font-mono text-[11px] ${
+                                  event.type === "heal" ? "text-teal-300" : "text-orange-300"
+                                }`}
+                              >
+                                {compactAmount}
+                              </span>
+                            ) : null}
+                            <span className="font-mono text-[11px] text-neutral-400">
+                              {formatTime(event.timestamp)}
+                            </span>
                           </span>
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-neutral-400">

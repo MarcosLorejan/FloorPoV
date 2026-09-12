@@ -60,6 +60,8 @@ const ALL_EVENT_TYPES_VISIBLE: Record<GameEventType, boolean> = {
   interrupt: true,
   bloodlust: true,
   combatRes: true,
+  bigHit: true,
+  heal: true,
   bossAbility: true,
   crowdControl: true,
   crowdControlBreak: true,
@@ -277,6 +279,74 @@ describe("recordingMetadataHasCombatContent", () => {
 });
 
 describe("convertRecordingMetadataToGameEvents", () => {
+  test("keeps compact amounts on deaths, big hits, and heals", () => {
+    const events = convertRecordingMetadataToGameEvents(
+      metadata({
+        importantEvents: [
+          {
+            timestampSeconds: 12,
+            eventType: "UNIT_DIED",
+            target: "DeadOne-NA",
+            targetKind: "PLAYER",
+            amount: 1_250_000,
+          },
+          {
+            timestampSeconds: 8,
+            eventType: "BIG_HIT",
+            source: "Boss",
+            target: "DeadOne-NA",
+            targetKind: "PLAYER",
+            amount: 2_400_000,
+          },
+          {
+            timestampSeconds: 9,
+            eventType: "HEAL",
+            source: "PriestOne-NA",
+            target: "DeadOne-NA",
+            targetKind: "PLAYER",
+            amount: 1_800_000,
+          },
+        ],
+      }),
+    );
+
+    expect(events).toEqual([
+      {
+        id: "BIG_HIT-8-1",
+        timestamp: 8,
+        type: "bigHit",
+        source: "Boss",
+        target: "DeadOne-NA",
+        targetKind: "PLAYER",
+        amount: 2_400_000,
+        abilityName: undefined,
+        name: undefined,
+      },
+      {
+        id: "HEAL-9-2",
+        timestamp: 9,
+        type: "heal",
+        source: "PriestOne-NA",
+        target: "DeadOne-NA",
+        targetKind: "PLAYER",
+        amount: 1_800_000,
+        abilityName: undefined,
+        name: undefined,
+      },
+      {
+        id: "UNIT_DIED-12-0",
+        timestamp: 12,
+        type: "death",
+        source: undefined,
+        target: "DeadOne-NA",
+        targetKind: "PLAYER",
+        amount: 1_250_000,
+        abilityName: undefined,
+        name: undefined,
+      },
+    ]);
+  });
+
   test("carries the marker name from the sidecar", () => {
     const [marker] = convertRecordingMetadataToGameEvents(metadataWithMarker("  bad soak  "));
 
@@ -399,6 +469,25 @@ describe("convertRecordingMetadataToGameEvents", () => {
 });
 
 describe("convertCombatEvent", () => {
+  test("forwards live combat amounts", () => {
+    expect(
+      convertCombatEvent({
+        timestamp: 4.5,
+        eventType: "BIG_HIT",
+        source: "Boss",
+        target: "DeadOne-NA",
+        amount: 2_400_000,
+      }),
+    ).toMatchObject({
+      timestamp: 4.5,
+      type: "bigHit",
+      source: "Boss",
+      target: "DeadOne-NA",
+      amount: 2_400_000,
+      abilityName: undefined,
+    });
+  });
+
   test("keeps the name emitted with a live marker", () => {
     const marker = convertCombatEvent({
       timestamp: 12.5,

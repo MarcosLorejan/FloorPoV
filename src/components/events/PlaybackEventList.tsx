@@ -5,13 +5,15 @@ import { useRecording } from "../../contexts/RecordingContext";
 import { useVideo } from "../../contexts/VideoContext";
 import {
   EVENT_SEEK_OFFSET_SECONDS,
+  isCrowdControlEventType,
   isVideoSeekBarEvent,
   type GameEvent,
+  type GameEventType,
 } from "../../types/events";
 import { formatTime, formatUnitName } from "../../utils/format";
 import { EventMarker, EventTypeFilter } from "./EventMarker";
 
-const EVENT_LIST_LABELS: Record<GameEvent["type"], string> = {
+const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   death: "Death",
   interrupt: "Interrupt",
   manual: "Marker",
@@ -19,7 +21,20 @@ const EVENT_LIST_LABELS: Record<GameEvent["type"], string> = {
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
   bossAbility: "Boss Ability",
+  crowdControl: "Crowd Control",
+  crowdControlBreak: "CC Break",
 };
+
+const EVENT_LIST_FILTER_TYPES: GameEventType[] = [
+  "death",
+  "interrupt",
+  "manual",
+  "bloodlust",
+  "combatRes",
+  "bossAbility",
+  "crowdControl",
+  "crowdControlBreak",
+];
 
 function getEventListDetail(event: GameEvent): string {
   if (event.type === "death") {
@@ -43,7 +58,12 @@ function getEventListDetail(event: GameEvent): string {
   }
 
   if (event.type === "bossAbility") {
-    return `${event.ability ?? "Unknown"} · ${formatUnitName(event.source)}`;
+    return `${event.abilityName ?? "Unknown"} · ${formatUnitName(event.source)}`;
+  }
+
+  if (isCrowdControlEventType(event.type)) {
+    const actors = `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+    return event.abilityName ? `${actors} · ${event.abilityName}` : actors;
   }
 
   return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
@@ -93,16 +113,16 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           <ListVideo className="h-3.5 w-3.5 text-neutral-300" />
           Events
         </div>
-        <EventTypeFilter types={["death", "interrupt", "manual", "bloodlust", "combatRes", "bossAbility"]} />
+        <EventTypeFilter types={EVENT_LIST_FILTER_TYPES} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, bloodlust, combat res, boss abilities, and markers.
+            Load a recording to see deaths, interrupts, crowd control, boss abilities, and markers.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, bloodlust, combat res, boss abilities, or markers in this recording.
+            No deaths, interrupts, crowd control, boss abilities, or markers in this recording.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>

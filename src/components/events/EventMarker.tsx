@@ -1,11 +1,11 @@
-import { Flag, Heart, ShieldOff, Skull, Sparkles, Sword, Zap } from "lucide-react";
+import { Flag, Heart, ShieldOff, Skull, Snowflake, Sparkles, Sword, Unlock, Zap } from "lucide-react";
 import { useMarker } from "../../contexts/MarkerContext";
-import { GameEvent } from "../../types/events";
+import { GameEventType } from "../../types/events";
 
 type EventMarkerVariant = "compact" | "detailed";
 
 interface EventMarkerProps {
-  type: GameEvent["type"];
+  type: GameEventType;
   variant?: EventMarkerVariant;
   className?: string;
 }
@@ -20,7 +20,7 @@ const ICON_CLASS_NAMES: Record<EventMarkerVariant, string> = {
   detailed: "h-4.5 w-4.5",
 };
 
-const ICONS: Record<GameEvent["type"], React.ComponentType<{ className?: string }>> = {
+const ICONS: Record<GameEventType, React.ComponentType<{ className?: string }>> = {
   kill: Sword,
   death: Skull,
   manual: Flag,
@@ -28,9 +28,11 @@ const ICONS: Record<GameEvent["type"], React.ComponentType<{ className?: string 
   bloodlust: Zap,
   combatRes: Heart,
   bossAbility: Sparkles,
+  crowdControl: Snowflake,
+  crowdControlBreak: Unlock,
 };
 
-const MARKER_CLASS_NAMES: Record<GameEvent["type"], Record<EventMarkerVariant, string>> = {
+const MARKER_CLASS_NAMES: Record<GameEventType, Record<EventMarkerVariant, string>> = {
   kill: {
     compact: "rounded-full bg-neutral-500 text-neutral-900",
     detailed: "rounded-full border border-neutral-100/45 bg-neutral-500 text-neutral-900",
@@ -56,8 +58,16 @@ const MARKER_CLASS_NAMES: Record<GameEvent["type"], Record<EventMarkerVariant, s
     detailed: "rounded-full border border-emerald-200/40 bg-emerald-400 text-emerald-950",
   },
   bossAbility: {
+    compact: "rounded-full bg-fuchsia-400 text-fuchsia-950",
+    detailed: "rounded-full border border-fuchsia-200/40 bg-fuchsia-400 text-fuchsia-950",
+  },
+  crowdControl: {
     compact: "rounded-full bg-violet-400 text-violet-950",
     detailed: "rounded-full border border-violet-200/40 bg-violet-400 text-violet-950",
+  },
+  crowdControlBreak: {
+    compact: "rounded-full bg-indigo-300 text-indigo-950",
+    detailed: "rounded-full border border-indigo-100/45 bg-indigo-300 text-indigo-950",
   },
 };
 
@@ -73,7 +83,7 @@ export function EventMarker({ type, variant = "compact", className }: EventMarke
   );
 }
 
-const EVENT_TYPE_FILTER_LABELS: Record<GameEvent["type"], string> = {
+const EVENT_TYPE_FILTER_LABELS: Record<GameEventType, string> = {
   death: "Deaths",
   interrupt: "Interrupts",
   manual: "Markers",
@@ -81,12 +91,14 @@ const EVENT_TYPE_FILTER_LABELS: Record<GameEvent["type"], string> = {
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
   bossAbility: "Boss abilities",
+  crowdControl: "Crowd Control",
+  crowdControlBreak: "CC Breaks",
 };
 
-const DEFAULT_EVENT_TYPE_FILTERS: GameEvent["type"][] = ["death", "interrupt", "manual", "kill"];
+const DEFAULT_EVENT_TYPE_FILTERS: GameEventType[] = ["death", "interrupt", "manual", "kill"];
 
 interface EventTypeFilterProps {
-  types?: GameEvent["type"][];
+  types?: GameEventType[];
 }
 
 export function EventTypeFilter({ types = DEFAULT_EVENT_TYPE_FILTERS }: EventTypeFilterProps) {

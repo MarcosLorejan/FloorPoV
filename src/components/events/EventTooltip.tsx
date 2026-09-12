@@ -14,6 +14,7 @@ const EVENT_LABELS: Record<GameEvent["type"], string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  note: "Note",
 };
 
 function getEventDescription(event: GameEvent): string {
@@ -35,6 +36,15 @@ function getEventDescription(event: GameEvent): string {
 
   if (event.type === "combatRes") {
     return `${event.source ?? "Unknown"} combat ressed ${event.target ?? "Unknown"}`;
+  }
+
+  if (event.type === "note") {
+    const noteText = event.note ?? "Review note";
+    if (noteText.length <= 80) {
+      return noteText;
+    }
+
+    return `${noteText.slice(0, 77)}...`;
   }
 
   return `${event.source ?? "Unknown"} killed ${event.target ?? "Unknown"}`;

@@ -12,6 +12,7 @@ import {
   Play,
   SkipBack,
   SkipForward,
+  StickyNote,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -21,10 +22,13 @@ import { useMarker } from "../../contexts/MarkerContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { EventMarker } from "../events/EventMarker";
 import { EventTooltip } from "../events/EventTooltip";
+import { NoteEditorDialog } from "../events/NoteEditorDialog";
 import { PlaybackEventList } from "../events/PlaybackEventList";
 import { ControlIconButton } from "./ControlIconButton";
 import { EVENT_SEEK_OFFSET_SECONDS, isVideoSeekBarEvent, type GameEvent } from "../../types/events";
+import { getErrorMessage } from "../../services/tauri";
 import { formatTime } from "../../utils/format";
+import { saveRecordingNote } from "../../utils/recording-notes";
 import { smoothTransition } from "../../lib/motion";
 
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -56,7 +60,9 @@ export function VideoPlayer() {
     volume,
     playbackRate,
     videoSrc,
+    loadedFilePath,
     togglePlay,
+    pause,
     setVolume,
     setPlaybackRate,
     seek,
@@ -67,7 +73,7 @@ export function VideoPlayer() {
   } = useVideo();
 
   const { isRecording, recordingWarning } = useRecording();
-  const { filteredEvents } = useMarker();
+  const { addEvent, filteredEvents } = useMarker();
   const { settings } = useSettings();
   const reduceMotion = useReducedMotion();
   const prefersReducedMotion = reduceMotion !== false;
@@ -97,8 +103,47 @@ export function VideoPlayer() {
   const [seekBarTooltipX, setSeekBarTooltipX] = useState(0);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [hoverPreview, setHoverPreview] = useState<{ time: number; x: number } | null>(null);
+  const [isNoteEditorOpen, setIsNoteEditorOpen] = useState(false);
+  const [noteEditorTimestamp, setNoteEditorTimestamp] = useState(0);
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
 
   const showVideo = Boolean(videoSrc) && !isRecording;
+  const canAddNote = showVideo && Boolean(loadedFilePath);
+
+  const openNoteEditor = useCallback(() => {
+    if (!canAddNote) {
+      return;
+    }
+
+    pause();
+    setNoteEditorTimestamp(currentTime);
+    setNoteError(null);
+    setIsNoteEditorOpen(true);
+  }, [canAddNote, currentTime, pause]);
+
+  const handleSaveNote = useCallback(async (text: string) => {
+    if (!loadedFilePath || isSavingNote) {
+      return;
+    }
+
+    setIsSavingNote(true);
+    setNoteError(null);
+
+    try {
+      const savedNote = await saveRecordingNote({
+        filePath: loadedFilePath,
+        timestampSeconds: noteEditorTimestamp,
+        text,
+      });
+      addEvent(savedNote);
+      setIsNoteEditorOpen(false);
+    } catch (error) {
+      setNoteError(getErrorMessage(error) || "Could not save the note.");
+    } finally {
+      setIsSavingNote(false);
+    }
+  }, [addEvent, isSavingNote, loadedFilePath, noteEditorTimestamp]);
   const canShowFullscreenEvents = isImmersiveMode && showVideo && settings.showFullscreenEventsPanel;
   const toggleImmersiveMode = () => {
     setIsImmersiveMode((currentValue) => !currentValue);
@@ -208,7 +253,7 @@ export function VideoPlayer() {
         return;
       }
 
-      if (showSpeedMenu) {
+      if (showSpeedMenu || isNoteEditorOpen) {
         return;
       }
 
@@ -227,7 +272,7 @@ export function VideoPlayer() {
     return () => {
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [isFullscreenEventsOpen, isImmersiveMode, showSpeedMenu]);
+  }, [isFullscreenEventsOpen, isImmersiveMode, isNoteEditorOpen, showSpeedMenu]);
 
   useEffect(() => {
     if (isImmersiveMode) {
@@ -277,7 +322,7 @@ export function VideoPlayer() {
         return;
       }
 
-      if (isEditableKeyboardTarget(event.target)) {
+      if (isEditableKeyboardTarget(event.target) || isNoteEditorOpen) {
         return;
       }
 
@@ -290,6 +335,12 @@ export function VideoPlayer() {
       if (event.key === "l" || event.key === "L") {
         event.preventDefault();
         skipPlaybackBySeconds(SKIP_SEEK_SECONDS);
+        return;
+      }
+
+      if (event.key === "n" || event.key === "N") {
+        event.preventDefault();
+        openNoteEditor();
       }
     };
 
@@ -297,7 +348,7 @@ export function VideoPlayer() {
     return () => {
       window.removeEventListener("keydown", handleSkipShortcut);
     };
-  }, [seek, showVideo, skipPlaybackBySeconds, videoRef]);
+  }, [isNoteEditorOpen, openNoteEditor, seek, showVideo, skipPlaybackBySeconds, videoRef]);
 
   useEffect(() => {
     if (!showVideo) {
@@ -827,6 +878,14 @@ export function VideoPlayer() {
             </div>
 
             <div className="flex items-center gap-2 md:shrink-0">
+              <ControlIconButton
+                label="Add note (N)"
+                onClick={openNoteEditor}
+                disabled={!canAddNote}
+              >
+                <StickyNote className="w-5 h-5" />
+              </ControlIconButton>
+
               <div ref={speedMenuRef} className="relative">
                 <button
                   type="button"
@@ -931,6 +990,28 @@ export function VideoPlayer() {
   return (
     <div ref={inlineSurfaceHostRef} className="relative h-full w-full">
       {createPortal(playerSurface, document.body)}
+      {isNoteEditorOpen
+        ? createPortal(
+            <NoteEditorDialog
+              title="Add note"
+              timestamp={noteEditorTimestamp}
+              isSaving={isSavingNote}
+              error={noteError}
+              onSave={(text) => {
+                void handleSaveNote(text);
+              }}
+              onCancel={() => {
+                if (isSavingNote) {
+                  return;
+                }
+
+                setIsNoteEditorOpen(false);
+                setNoteError(null);
+              }}
+            />,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

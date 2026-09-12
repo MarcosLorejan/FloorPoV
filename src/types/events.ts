@@ -1,10 +1,11 @@
 export interface GameEvent {
   id: string;
   timestamp: number;
-  type: "kill" | "death" | "manual" | "interrupt" | "bloodlust" | "combatRes";
+  type: "kill" | "death" | "manual" | "interrupt" | "bloodlust" | "combatRes" | "note";
   source?: string;
   target?: string;
   targetKind?: string;
+  note?: string;
 }
 
 export interface RecordingImportantEventMetadata {
@@ -35,6 +36,12 @@ export interface RecordingPlayerMetadata {
   specId?: number;
 }
 
+export interface RecordingNoteMetadata {
+  id: string;
+  timestampSeconds: number;
+  text: string;
+}
+
 export interface RecordingMetadata {
   schemaVersion: number;
   recordingFile: string;
@@ -47,6 +54,7 @@ export interface RecordingMetadata {
   importantEventCounts?: Record<string, number>;
   importantEventsDroppedCount?: number;
   players?: RecordingPlayerMetadata[];
+  notes?: RecordingNoteMetadata[];
 }
 
 export interface CombatEvent {
@@ -150,14 +158,32 @@ function mapEventTypeToGameEventType(eventType: string): GameEvent["type"] {
   return "manual";
 }
 
+export function convertRecordingNoteToGameEvent(note: RecordingNoteMetadata): GameEvent | null {
+  if (!note.id.trim()) {
+    return null;
+  }
+
+  if (!Number.isFinite(note.timestampSeconds) || note.timestampSeconds < 0) {
+    return null;
+  }
+
+  const text = note.text.trim();
+  if (!text) {
+    return null;
+  }
+
+  return {
+    id: note.id,
+    timestamp: note.timestampSeconds,
+    type: "note",
+    note: text,
+  };
+}
+
 export function convertRecordingMetadataToGameEvents(
   metadata: RecordingMetadata | null,
 ): GameEvent[] {
-  if (!metadata?.importantEvents?.length) {
-    return [];
-  }
-
-  return metadata.importantEvents
+  const combatEvents = (metadata?.importantEvents ?? [])
     .flatMap((importantEvent, index) => {
       if (!SUPPORTED_PLAYBACK_EVENT_TYPES.has(importantEvent.eventType)) {
         return [];
@@ -197,6 +223,13 @@ export function convertRecordingMetadataToGameEvents(
 
       return uniqueEvents;
     }, []);
+
+  const noteEvents = (metadata?.notes ?? []).flatMap((note) => {
+    const gameEvent = convertRecordingNoteToGameEvent(note);
+    return gameEvent ? [gameEvent] : [];
+  });
+
+  return [...combatEvents, ...noteEvents].sort((left, right) => left.timestamp - right.timestamp);
 }
 
 export function isVideoSeekBarEvent(event: GameEvent): boolean {
@@ -205,7 +238,8 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
     event.type === "manual" ||
     event.type === "interrupt" ||
     event.type === "bloodlust" ||
-    event.type === "combatRes"
+    event.type === "combatRes" ||
+    event.type === "note"
   );
 }
 
@@ -219,7 +253,12 @@ export function shouldShowGameEvent(
   }
 
   // These types are useful even when the dest unit is an NPC or the caster themselves.
-  if (event.type === "interrupt" || event.type === "bloodlust" || event.type === "combatRes") {
+  if (
+    event.type === "interrupt" ||
+    event.type === "bloodlust" ||
+    event.type === "combatRes" ||
+    event.type === "note"
+  ) {
     return true;
   }
 

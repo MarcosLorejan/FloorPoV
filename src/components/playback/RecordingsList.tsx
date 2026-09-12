@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { Clock3, Film, HardDrive, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useRecording } from '../../contexts/RecordingContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useVideo } from '../../contexts/VideoContext';
@@ -98,10 +98,8 @@ export function RecordingsList({
   const [deletingRecordingPaths, setDeletingRecordingPaths] = useState<string[]>([]);
   const [pendingDeleteRecordings, setPendingDeleteRecordings] = useState<RecordingInfo[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const recordingsContainerRef = useRef<HTMLDivElement>(null);
   const displayError = deleteError ?? listError;
-  const deleteDialogRef = useRef<HTMLDivElement>(null);
-  const cancelDeleteButtonRef = useRef<HTMLButtonElement>(null);
-  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   const isDeletingRecordings = deletingRecordingPaths.length > 0;
   const hasPendingDeleteRecordings = pendingDeleteRecordings.length > 0;
   const deletingRecordingPathSet = useMemo(() => {
@@ -192,55 +190,6 @@ export function RecordingsList({
 
     setPendingDeleteRecordings([]);
   }, [isDeletingRecordings]);
-
-  useEffect(() => {
-    if (!hasPendingDeleteRecordings) {
-      previouslyFocusedElementRef.current?.focus();
-      return;
-    }
-
-    previouslyFocusedElementRef.current = document.activeElement as HTMLElement | null;
-    cancelDeleteButtonRef.current?.focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        cancelDeleteRecording();
-        return;
-      }
-
-      if (event.key !== 'Tab' || !deleteDialogRef.current) {
-        return;
-      }
-
-      const focusableElements = Array.from(
-        deleteDialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      );
-
-      if (focusableElements.length === 0) {
-        return;
-      }
-
-      const firstElement = focusableElements[0];
-      const lastElement = focusableElements[focusableElements.length - 1];
-      const activeElement = document.activeElement as HTMLElement | null;
-
-      if (event.shiftKey && activeElement === firstElement) {
-        event.preventDefault();
-        lastElement.focus();
-      } else if (!event.shiftKey && activeElement === lastElement) {
-        event.preventDefault();
-        firstElement.focus();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [cancelDeleteRecording, hasPendingDeleteRecordings]);
 
   const confirmDeleteRecording = useCallback(async () => {
     if (
@@ -351,6 +300,8 @@ export function RecordingsList({
       {displayError && <p className="mb-2 text-xs text-red-300" role="status">{displayError}</p>}
 
       <div
+        ref={recordingsContainerRef}
+        tabIndex={-1}
         className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]"
         aria-busy={isLoading}
       >
@@ -499,10 +450,9 @@ export function RecordingsList({
 
       {hasPendingDeleteRecordings && (
         <DeleteConfirmDialog
-          dialogRef={deleteDialogRef}
-          cancelButtonRef={cancelDeleteButtonRef}
           titleId="delete-recording-title"
           descriptionId="delete-recording-description"
+          fallbackFocusRef={recordingsContainerRef}
           title={isBulkDelete ? 'Delete recordings?' : 'Delete recording?'}
           description={
             isBulkDelete ? (

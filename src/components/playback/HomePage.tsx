@@ -6,6 +6,7 @@ import { useVideo } from "../../contexts/VideoContext";
 import { panelVariants, smoothTransition } from "../../lib/motion";
 import { MEDIA_SECTION_RESIZE_DELTA } from "../../types/settings";
 import { PlaybackEventList } from "../events/PlaybackEventList";
+import { PlayerActionTimelines } from "../events/PlayerActionTimelines";
 import { RecordingsList } from "./RecordingsList";
 import { VideoPlayer } from "./VideoPlayer";
 
@@ -136,6 +137,8 @@ export function HomePage() {
           <div className="h-0.5 w-24 rounded-full bg-white/35" />
         </div>
       )}
+
+      {showPlaybackWorkspace && <PlayerActionTimelines />}
 
       <RecordingsList />
     </motion.div>

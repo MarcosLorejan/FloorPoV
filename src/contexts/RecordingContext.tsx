@@ -61,7 +61,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   const [isSelectedWindowAlive, setIsSelectedWindowAlive] = useState(true);
   const appStatusDetail = windowGoneDetail ?? combatWatchDetail ?? autoRecordingConfigDetail;
   const { settings, updateSettings } = useSettings();
-  const { addEvent, setEvents, clearEvents } = useMarker();
+  const { addEvent, setEvents, setPlayers, clearEvents } = useMarker();
   const operationInFlightRef = useRef(false);
   const isRecordingRef = useRef(false);
   const recordingOriginRef = useRef<RecordingOrigin | null>(null);
@@ -357,6 +357,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     const normalizedPath = filePath.trim();
     if (!normalizedPath) {
       setEvents([]);
+      setPlayers([]);
       return;
     }
 
@@ -366,9 +367,11 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       });
 
       setEvents(convertRecordingMetadataToGameEvents(metadata));
+      setPlayers(metadata?.players ?? []);
     } catch (error) {
       console.warn("Failed to load recording metadata. Falling back to no markers.", error);
       setEvents([]);
+      setPlayers([]);
     }
   };
 

@@ -140,6 +140,34 @@ export function VideoProvider({ children }: { children: ReactNode }) {
     setPlaybackRateState(rate);
   }, []);
 
+  const clearSinglePlayback = useCallback(() => {
+    if (loadingTimeoutRef.current !== null) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+
+    const videoElement = videoRef.current;
+    if (videoElement) {
+      videoElement.pause();
+      videoElement.removeAttribute("src");
+      videoElement.load();
+    }
+
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+
+    videoSrcRef.current = null;
+    loadedFilePathRef.current = null;
+    setVideoSrc(null);
+    setLoadedFilePath(null);
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
+    setIsVideoLoading(false);
+  }, []);
+
   const loadVideo = useCallback(
     (src: string, filePath: string) => {
       resetCompareMode();
@@ -191,12 +219,14 @@ export function VideoProvider({ children }: { children: ReactNode }) {
     [resetCompareMode, setVideoLoading]
   );
 
-  const enterCompareMode = useCallback((left: CompareVideoSlot, right: CompareVideoSlot) => {
-    videoRef.current?.pause();
-    setIsPlaying(false);
-    setCompareVideos([left, right]);
-    setIsCompareMode(true);
-  }, []);
+  const enterCompareMode = useCallback(
+    (left: CompareVideoSlot, right: CompareVideoSlot) => {
+      clearSinglePlayback();
+      setCompareVideos([left, right]);
+      setIsCompareMode(true);
+    },
+    [clearSinglePlayback],
+  );
 
   const exitCompareMode = useCallback(() => {
     resetCompareMode();
@@ -204,33 +234,8 @@ export function VideoProvider({ children }: { children: ReactNode }) {
 
   const clearPlayback = useCallback(() => {
     resetCompareMode();
-
-    if (loadingTimeoutRef.current !== null) {
-      clearTimeout(loadingTimeoutRef.current);
-      loadingTimeoutRef.current = null;
-    }
-
-    const videoElement = videoRef.current;
-    if (videoElement) {
-      videoElement.pause();
-      videoElement.removeAttribute("src");
-      videoElement.load();
-    }
-
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = null;
-    }
-
-    videoSrcRef.current = null;
-    loadedFilePathRef.current = null;
-    setVideoSrc(null);
-    setLoadedFilePath(null);
-    setCurrentTime(0);
-    setDuration(0);
-    setIsPlaying(false);
-    setIsVideoLoading(false);
-  }, [resetCompareMode]);
+    clearSinglePlayback();
+  }, [clearSinglePlayback, resetCompareMode]);
 
   useEffect(() => {
     if (!isPlaying) {

@@ -12,6 +12,9 @@ import {
   otherCompareSlotIndex,
   sharedCompareDuration,
   shouldExitCompareMode,
+  shouldPreserveCompareSession,
+  shouldRestartSharedCompare,
+  shouldResumeCompareSlot,
   type CompareVideoSlot,
 } from "./compare-playback";
 
@@ -159,5 +162,53 @@ describe("shouldExitCompareMode", () => {
 
   test("does nothing when compare is inactive", () => {
     expect(shouldExitCompareMode(null, [])).toBe(false);
+  });
+});
+
+describe("shouldPreserveCompareSession", () => {
+  test("keeps compare when both files remain", () => {
+    expect(
+      shouldPreserveCompareSession(["C:\\Videos\\a.mp4", "C:\\Videos\\b.mp4"], [
+        { file_path: "C:\\Videos\\a.mp4" },
+        { file_path: "C:\\Videos\\b.mp4" },
+        { file_path: "C:\\Videos\\c.mp4" },
+      ]),
+    ).toBe(true);
+  });
+
+  test("does not preserve when a compared file is gone", () => {
+    expect(
+      shouldPreserveCompareSession(["C:\\Videos\\a.mp4", "C:\\Videos\\b.mp4"], [
+        { file_path: "C:\\Videos\\a.mp4" },
+      ]),
+    ).toBe(false);
+  });
+
+  test("does not preserve an inactive compare", () => {
+    expect(shouldPreserveCompareSession(null, [{ file_path: "C:\\Videos\\a.mp4" }])).toBe(false);
+  });
+});
+
+describe("shouldRestartSharedCompare", () => {
+  test("rewinds only after both recordings have ended", () => {
+    expect(shouldRestartSharedCompare(true, true)).toBe(true);
+    expect(shouldRestartSharedCompare(true, false)).toBe(false);
+    expect(shouldRestartSharedCompare(false, false)).toBe(false);
+  });
+});
+
+describe("shouldResumeCompareSlot", () => {
+  test("plays a slot that still has time on the shared clock", () => {
+    expect(shouldResumeCompareSlot(10, 20)).toBe(true);
+  });
+
+  test("leaves a shorter recording parked once the clock is past its end", () => {
+    expect(shouldResumeCompareSlot(20, 20)).toBe(false);
+    expect(shouldResumeCompareSlot(50, 20)).toBe(false);
+  });
+
+  test("rejects invalid clock or duration", () => {
+    expect(shouldResumeCompareSlot(Number.NaN, 20)).toBe(false);
+    expect(shouldResumeCompareSlot(8, 0)).toBe(false);
   });
 });

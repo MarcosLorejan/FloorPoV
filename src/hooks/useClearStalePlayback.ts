@@ -1,7 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useMarker } from "../contexts/MarkerContext";
 import { useVideo } from "../contexts/VideoContext";
-import { compareFilePaths, shouldExitCompareMode } from "../utils/compare-playback";
+import {
+  compareFilePaths,
+  shouldExitCompareMode,
+  shouldPreserveCompareSession,
+} from "../utils/compare-playback";
 import { shouldClearStalePlayback } from "../utils/playback-session";
 
 interface PlaybackRecordingItem {
@@ -23,15 +27,20 @@ export function useClearStalePlayback(
       return;
     }
 
+    const comparedFilePaths = compareFilePaths(compareVideos);
+    if (shouldPreserveCompareSession(comparedFilePaths, recordings)) {
+      return;
+    }
+
+    if (shouldExitCompareMode(comparedFilePaths, recordings)) {
+      exitCompareMode();
+      return;
+    }
+
     if (shouldClearStalePlayback(loadedFilePath, Boolean(videoSrc), recordings)) {
       clearPlayback();
       clearEvents();
       onClearedRef.current?.();
-      return;
-    }
-
-    if (shouldExitCompareMode(compareFilePaths(compareVideos), recordings)) {
-      exitCompareMode();
     }
   }, [
     clearEvents,

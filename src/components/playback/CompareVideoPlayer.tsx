@@ -24,6 +24,8 @@ import {
   compareSeekTimes,
   otherCompareSlotIndex,
   sharedCompareDuration,
+  shouldRestartSharedCompare,
+  shouldResumeCompareSlot,
   type CompareSlotIndex,
 } from "../../utils/compare-playback";
 import { formatTime } from "../../utils/format";
@@ -335,13 +337,38 @@ export function CompareVideoPlayer() {
       return element !== null && !element.paused;
     });
 
+    if (shouldPause) {
+      videoElementsRef.current.forEach((element) => {
+        element?.pause();
+      });
+      return;
+    }
+
+    const [leftElement, rightElement] = videoElementsRef.current;
+    if (isSharedSeek) {
+      const resumeTime = shouldRestartSharedCompare(
+        Boolean(leftElement?.ended),
+        Boolean(rightElement?.ended),
+      )
+        ? 0
+        : readSharedTime();
+      seekBothSlots(resumeTime);
+
+      COMPARE_SLOT_INDEXES.forEach((index) => {
+        const element = videoElementsRef.current[index];
+        if (!element || !shouldResumeCompareSlot(resumeTime, element.duration)) {
+          return;
+        }
+
+        element.play().catch((playError: unknown) => {
+          console.error("[CompareVideoPlayer] Could not start playback", playError);
+        });
+      });
+      return;
+    }
+
     videoElementsRef.current.forEach((element) => {
       if (!element) {
-        return;
-      }
-
-      if (shouldPause) {
-        element.pause();
         return;
       }
 
@@ -349,7 +376,7 @@ export function CompareVideoPlayer() {
         console.error("[CompareVideoPlayer] Could not start playback", playError);
       });
     });
-  }, []);
+  }, [isSharedSeek, readSharedTime, seekBothSlots]);
 
   const toggleSlotMute = useCallback(
     (index: CompareSlotIndex) => {

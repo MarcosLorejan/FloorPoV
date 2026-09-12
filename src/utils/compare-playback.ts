@@ -135,3 +135,32 @@ export function shouldExitCompareMode(
     !availablePathSet.has(comparedFilePaths[0]) || !availablePathSet.has(comparedFilePaths[1])
   );
 }
+
+/** Keep compare up when both files are still in the list, even if leftover single playback is stale. */
+export function shouldPreserveCompareSession(
+  comparedFilePaths: [string, string] | null,
+  recordings: Array<{ file_path: string }>,
+): boolean {
+  return comparedFilePaths !== null && !shouldExitCompareMode(comparedFilePaths, recordings);
+}
+
+/** After both recordings finish, play-all should rewind the shared clock instead of no-op. */
+export function shouldRestartSharedCompare(leftEnded: boolean, rightEnded: boolean): boolean {
+  return leftEnded && rightEnded;
+}
+
+/**
+ * Whether a slot should receive play() when resuming shared seek. An ended shorter
+ * recording stays parked; play() on ended media restarts from zero.
+ */
+export function shouldResumeCompareSlot(clockTime: number, slotDuration: number): boolean {
+  if (!Number.isFinite(clockTime) || clockTime < 0) {
+    return false;
+  }
+
+  if (!Number.isFinite(slotDuration) || slotDuration <= 0) {
+    return false;
+  }
+
+  return clockTime < slotDuration;
+}

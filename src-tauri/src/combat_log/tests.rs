@@ -2174,7 +2174,7 @@ fn new_key_start_still_emits_start_while_already_in_challenge_mode() {
 }
 
 #[test]
-fn zone_change_does_not_emit_auto_record_triggers() {
+fn dungeon_floor_zone_change_does_not_emit_auto_record_triggers() {
     let mut context = super::parse::DebugParseContext::default();
     parse_important_combat_event(
         &build_line(
@@ -2185,14 +2185,93 @@ fn zone_change_does_not_emit_auto_record_triggers() {
     );
 
     let zone_event = parse_important_combat_event(
+        &build_line("ZONE_CHANGED", &["2805", "\"Augurs' Terrace\"", "8"]),
+        &mut context,
+    )
+    .expect("floor zone change should parse as context");
+    assert!(
+        extract_combat_trigger_event(&zone_event).is_none(),
+        "changing floors inside the key must not stop auto-record"
+    );
+    assert!(
+        context.in_challenge_mode,
+        "floor changes must keep the key session open"
+    );
+}
+
+#[test]
+fn leaving_instance_during_key_emits_mythic_plus_end() {
+    let mut context = super::parse::DebugParseContext::default();
+    parse_important_combat_event(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        &mut context,
+    );
+
+    let leave_event = parse_important_combat_event(
         &build_line("ZONE_CHANGED", &["2444", "\"Valdrakken\"", "0"]),
         &mut context,
     )
-    .expect("zone change should parse as context");
+    .expect("outdoor zone change should parse");
+    let end_trigger = extract_combat_trigger_event(&leave_event)
+        .expect("vote-to-abandon / hearth must stop auto-record");
+    assert_eq!(end_trigger.trigger_type, "end");
+    assert_eq!(end_trigger.mode, "mythicPlus");
+    assert_eq!(end_trigger.event_type, "CHALLENGE_MODE_END");
     assert!(
-        extract_combat_trigger_event(&zone_event).is_none(),
-        "leaving the instance must not stop auto-record by itself"
+        !context.in_challenge_mode,
+        "leaving the instance ends the key session"
     );
+}
+
+#[test]
+fn modern_zone_change_outdoor_also_emits_mythic_plus_end() {
+    let mut context = super::parse::DebugParseContext::default();
+    parse_important_combat_event(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        &mut context,
+    );
+
+    let leave_event = parse_important_combat_event(
+        &build_line("ZONE_CHANGE", &["2444", "\"Dornogal\"", "0"]),
+        &mut context,
+    )
+    .expect("ZONE_CHANGE should parse");
+    let end_trigger = extract_combat_trigger_event(&leave_event)
+        .expect("modern ZONE_CHANGE to the open world must stop auto-record");
+    assert_eq!(end_trigger.mode, "mythicPlus");
+    assert_eq!(end_trigger.trigger_type, "end");
+}
+
+#[test]
+fn map_change_during_key_does_not_emit_auto_record_stop() {
+    let mut context = super::parse::DebugParseContext::default();
+    parse_important_combat_event(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        &mut context,
+    );
+
+    let map_event = parse_important_combat_event(
+        &build_line(
+            "MAP_CHANGE",
+            &["2805", "\"Augurs' Terrace\"", "1", "0", "1", "0"],
+        ),
+        &mut context,
+    )
+    .expect("map change should parse as context");
+    assert!(
+        extract_combat_trigger_event(&map_event).is_none(),
+        "MAP_CHANGE field 3 is a coordinate, not instance type"
+    );
+    assert!(context.in_challenge_mode);
 }
 
 #[test]
@@ -2312,7 +2391,29 @@ fn raid_recording_does_not_emit_abandoned_end_when_log_rotates() {
 }
 
 #[test]
-fn zone_change_during_key_still_emits_abandoned_end() {
+fn floor_change_during_key_still_emits_abandoned_end() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.consume_combat_log_line(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Augurs' Terrace\"", "2805", "557", "15"],
+        ),
+        0.0,
+    );
+    accumulator.begin_recording_session(1.0);
+    accumulator.consume_combat_log_line(
+        &build_line("ZONE_CHANGED", &["2805", "\"Augurs' Terrace\"", "8"]),
+        30.0,
+    );
+
+    let trigger = accumulator
+        .take_abandoned_auto_session_end_trigger()
+        .expect("floor changes must leave the key open so log rotate can still stop it");
+    assert_eq!(trigger.mode, "mythicPlus");
+}
+
+#[test]
+fn outdoor_leave_does_not_need_abandoned_end() {
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.consume_combat_log_line(
         &build_line(
@@ -2327,8 +2428,10 @@ fn zone_change_during_key_still_emits_abandoned_end() {
         30.0,
     );
 
-    let trigger = accumulator
-        .take_abandoned_auto_session_end_trigger()
-        .expect("leaving the dungeon without CHALLENGE_MODE_END must still stop on log rotate");
-    assert_eq!(trigger.mode, "mythicPlus");
+    assert!(
+        accumulator
+            .take_abandoned_auto_session_end_trigger()
+            .is_none(),
+        "vote-to-abandon already ends the key, so log rotate must not emit a second stop"
+    );
 }

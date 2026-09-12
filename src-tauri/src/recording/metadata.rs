@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(crate) const RECORDING_METADATA_SCHEMA_VERSION: u32 = 2;
+pub(crate) const MANUAL_MARKER_EVENT_TYPE: &str = "MANUAL_MARKER";
+pub(crate) const MANUAL_MARKER_NAME_MAX_CHARS: usize = 64;
+const MANUAL_MARKER_TIMESTAMP_EPSILON_SECONDS: f64 = 0.05;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,6 +41,8 @@ pub struct RecordingImportantEventMetadata {
     pub encounter_category: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key_level: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,6 +210,78 @@ impl RecordingMetadataSnapshot {
 
 pub(crate) fn metadata_sidecar_path(recording_path: &Path) -> PathBuf {
     recording_path.with_extension("meta.json")
+}
+
+/// Collapses whitespace and caps the length so a stray paste cannot bloat the sidecar.
+/// A name that holds no visible characters is stored as absent rather than as an empty string.
+pub(crate) fn normalize_manual_marker_name(name: Option<String>) -> Option<String> {
+    let collapsed = name?.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+
+    Some(
+        collapsed
+            .chars()
+            .take(MANUAL_MARKER_NAME_MAX_CHARS)
+            .collect(),
+    )
+}
+
+/// Sets or clears the name of the manual marker at `timestamp_seconds` and reports whether a
+/// marker matched.
+///
+/// Timestamps come straight from the metadata the caller already holds, so an exact match is
+/// the norm and the epsilon only absorbs float drift. Markers can still share that window, so
+/// setting a name prefers an unnamed marker and clearing prefers a named one. That keeps naming
+/// a freshly placed marker from overwriting a name the user already wrote.
+pub(crate) fn apply_manual_marker_name(
+    events: &mut [RecordingImportantEventMetadata],
+    timestamp_seconds: f64,
+    name: Option<String>,
+) -> bool {
+    let normalized_name = normalize_manual_marker_name(name);
+    let matching_indexes = events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| {
+            event.event_type == MANUAL_MARKER_EVENT_TYPE
+                && (event.timestamp_seconds - timestamp_seconds).abs()
+                    <= MANUAL_MARKER_TIMESTAMP_EPSILON_SECONDS
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+
+    let prefers_named_marker = normalized_name.is_none();
+    let selected_index = matching_indexes
+        .iter()
+        .copied()
+        .find(|&index| events[index].name.is_some() == prefers_named_marker)
+        .or_else(|| matching_indexes.last().copied());
+
+    let Some(index) = selected_index else {
+        return false;
+    };
+
+    events[index].name = normalized_name;
+    true
+}
+
+pub(crate) fn update_manual_marker_name_in_sidecar(
+    recording_path: &Path,
+    timestamp_seconds: f64,
+    name: Option<String>,
+) -> Result<(), String> {
+    let Some(mut metadata) = read_recording_metadata(recording_path)? else {
+        return Err("Recording metadata sidecar not found".to_string());
+    };
+
+    if !apply_manual_marker_name(&mut metadata.important_events, timestamp_seconds, name) {
+        return Err("Manual marker not found".to_string());
+    }
+
+    write_recording_metadata(recording_path, &metadata)?;
+    Ok(())
 }
 
 pub(crate) fn read_recording_metadata(
@@ -470,10 +547,11 @@ fn temporary_sidecar_path(sidecar_path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        delete_recording_metadata, library_filename_stem, metadata_sidecar_path,
-        read_recording_metadata, rename_finalized_recording_if_named, slugify_library_name,
-        timestamp_label_from_stem, write_recording_metadata, RecordingImportantEventMetadata,
-        RecordingMetadata,
+        apply_manual_marker_name, delete_recording_metadata, library_filename_stem,
+        metadata_sidecar_path, normalize_manual_marker_name, read_recording_metadata,
+        rename_finalized_recording_if_named, slugify_library_name, timestamp_label_from_stem,
+        update_manual_marker_name_in_sidecar, write_recording_metadata,
+        RecordingImportantEventMetadata, RecordingMetadata, MANUAL_MARKER_NAME_MAX_CHARS,
     };
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -563,6 +641,7 @@ mod tests {
                 encounter_name: None,
                 encounter_category: Some("mythicPlus".to_string()),
                 key_level: Some(13),
+                name: None,
             });
         metadata
             .important_events
@@ -577,6 +656,7 @@ mod tests {
                 encounter_name: None,
                 encounter_category: Some("mythicPlus".to_string()),
                 key_level: Some(13),
+                name: None,
             });
 
         assert_eq!(metadata.library_zone_name().as_deref(), Some("Murder Row"));
@@ -606,6 +686,7 @@ mod tests {
                 encounter_name: Some("Test Encounter".to_string()),
                 encounter_category: Some("raid".to_string()),
                 key_level: None,
+                name: None,
             });
         metadata
             .important_event_counts
@@ -724,5 +805,185 @@ mod tests {
         std::fs::remove_file(&recording_path).expect("Failed to remove test recording");
         std::fs::remove_dir_all(&temp_directory)
             .expect("Failed to remove temporary library rename directory");
+    }
+
+    fn manual_marker_event(
+        timestamp_seconds: f64,
+        name: Option<&str>,
+    ) -> RecordingImportantEventMetadata {
+        RecordingImportantEventMetadata {
+            timestamp_seconds,
+            log_timestamp: None,
+            event_type: "MANUAL_MARKER".to_string(),
+            source: None,
+            target: None,
+            target_kind: None,
+            zone_name: None,
+            encounter_name: None,
+            encounter_category: None,
+            key_level: None,
+            name: name.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn normalizes_manual_marker_names() {
+        assert_eq!(
+            normalize_manual_marker_name(Some("  bad   soak  ".to_string())).as_deref(),
+            Some("bad soak")
+        );
+        assert_eq!(normalize_manual_marker_name(Some("   ".to_string())), None);
+        assert_eq!(normalize_manual_marker_name(None), None);
+
+        let too_long = "x".repeat(MANUAL_MARKER_NAME_MAX_CHARS + 8);
+        assert_eq!(
+            normalize_manual_marker_name(Some(too_long))
+                .expect("name should truncate")
+                .chars()
+                .count(),
+            MANUAL_MARKER_NAME_MAX_CHARS
+        );
+    }
+
+    #[test]
+    fn names_the_matching_manual_marker() {
+        let mut events = vec![
+            manual_marker_event(12.0, None),
+            RecordingImportantEventMetadata {
+                timestamp_seconds: 12.0,
+                log_timestamp: None,
+                event_type: "UNIT_DIED".to_string(),
+                source: None,
+                target: Some("PlayerOne".to_string()),
+                target_kind: Some("PLAYER".to_string()),
+                zone_name: None,
+                encounter_name: None,
+                encounter_category: None,
+                key_level: None,
+                name: None,
+            },
+            manual_marker_event(40.0, None),
+        ];
+
+        assert!(apply_manual_marker_name(
+            &mut events,
+            12.0,
+            Some("hold kick".to_string())
+        ));
+        assert_eq!(events[0].name.as_deref(), Some("hold kick"));
+        assert_eq!(events[2].name, None);
+    }
+
+    #[test]
+    fn prefers_unnamed_marker_when_timestamps_match() {
+        let mut events = vec![
+            manual_marker_event(8.0, Some("already named")),
+            manual_marker_event(8.0, None),
+        ];
+
+        assert!(apply_manual_marker_name(
+            &mut events,
+            8.0,
+            Some("bad soak".to_string())
+        ));
+        assert_eq!(events[0].name.as_deref(), Some("already named"));
+        assert_eq!(events[1].name.as_deref(), Some("bad soak"));
+    }
+
+    #[test]
+    fn prefers_named_marker_when_clearing_a_name() {
+        let mut events = vec![
+            manual_marker_event(8.0, None),
+            manual_marker_event(8.0, Some("bad soak")),
+        ];
+
+        assert!(apply_manual_marker_name(&mut events, 8.0, None));
+        assert_eq!(events[0].name, None);
+        assert_eq!(events[1].name, None);
+    }
+
+    #[test]
+    fn reports_no_match_for_an_unknown_marker_timestamp() {
+        let mut events = vec![manual_marker_event(8.0, None)];
+
+        assert!(!apply_manual_marker_name(
+            &mut events,
+            30.0,
+            Some("bad soak".to_string())
+        ));
+        assert_eq!(events[0].name, None);
+    }
+
+    #[test]
+    fn reads_sidecars_written_before_markers_had_names() {
+        let temp_directory = unique_temp_directory();
+        std::fs::create_dir_all(&temp_directory)
+            .expect("Failed to create temporary metadata test directory");
+
+        let recording_path = temp_directory.join("screen_recording_20260222_153016.mp4");
+        let legacy_sidecar_json = r#"{
+            "schemaVersion": 2,
+            "recordingFile": "screen_recording_20260222_153016.mp4",
+            "importantEvents": [
+                { "timestampSeconds": 15.5, "eventType": "MANUAL_MARKER" }
+            ],
+            "capturedAtUnix": 1771000000
+        }"#;
+        std::fs::write(metadata_sidecar_path(&recording_path), legacy_sidecar_json)
+            .expect("Failed to write legacy metadata sidecar");
+
+        let metadata = read_recording_metadata(&recording_path)
+            .expect("Expected metadata read to succeed")
+            .expect("Expected metadata sidecar to exist");
+        assert_eq!(metadata.important_events[0].name, None);
+
+        delete_recording_metadata(&recording_path).expect("Expected metadata delete to succeed");
+        std::fs::remove_dir_all(&temp_directory)
+            .expect("Failed to remove temporary metadata test directory");
+    }
+
+    #[test]
+    fn persists_manual_marker_name_in_sidecar() {
+        let temp_directory = unique_temp_directory();
+        std::fs::create_dir_all(&temp_directory)
+            .expect("Failed to create temporary metadata test directory");
+
+        let recording_path = temp_directory.join("screen_recording_20260222_153014.mp4");
+        std::fs::write(&recording_path, b"test")
+            .expect("Failed to create test recording file for named marker");
+
+        let mut metadata = RecordingMetadata::new(&recording_path);
+        metadata
+            .important_events
+            .push(manual_marker_event(15.5, None));
+        write_recording_metadata(&recording_path, &metadata)
+            .expect("Expected metadata write to succeed");
+
+        update_manual_marker_name_in_sidecar(
+            &recording_path,
+            15.5,
+            Some("  bad soak  ".to_string()),
+        )
+        .expect("Expected marker name update to succeed");
+
+        let loaded_metadata = read_recording_metadata(&recording_path)
+            .expect("Expected metadata read to succeed")
+            .expect("Expected metadata sidecar to exist");
+        assert_eq!(
+            loaded_metadata.important_events[0].name.as_deref(),
+            Some("bad soak")
+        );
+
+        update_manual_marker_name_in_sidecar(&recording_path, 15.5, None)
+            .expect("Expected marker name clear to succeed");
+
+        let cleared_sidecar = std::fs::read_to_string(metadata_sidecar_path(&recording_path))
+            .expect("Expected metadata sidecar to be readable");
+        assert!(!cleared_sidecar.contains("\"name\""));
+
+        delete_recording_metadata(&recording_path).expect("Expected metadata delete to succeed");
+        std::fs::remove_file(&recording_path).expect("Failed to remove test recording file");
+        std::fs::remove_dir_all(&temp_directory)
+            .expect("Failed to remove temporary metadata test directory");
     }
 }

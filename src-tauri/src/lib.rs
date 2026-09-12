@@ -123,6 +123,7 @@ pub fn run() {
             combat_log::watch::set_combat_watch_recording_output,
             combat_log::watch::validate_wow_folder,
             combat_log::watch::emit_manual_marker,
+            combat_log::watch::update_manual_marker_name,
             combat_log::debug::parse_combat_log_file,
             wcl_upload::start_wcl_upload,
             wcl_upload::scan_wcl_log,

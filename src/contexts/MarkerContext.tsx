@@ -1,5 +1,10 @@
 import { createContext, ReactNode, useContext, useState, useCallback, useMemo } from "react";
-import { GameEvent, RecordingEncounterMetadata, shouldShowGameEvent } from "../types/events";
+import {
+  GameEvent,
+  RecordingEncounterMetadata,
+  shouldPromptManualMarkerName,
+  shouldShowGameEvent,
+} from "../types/events";
 
 const DEFAULT_EVENT_TYPE_VISIBILITY: Record<GameEvent["type"], boolean> = {
   kill: true,
@@ -21,6 +26,9 @@ interface MarkerContextType {
   setEncounters: (encounters: RecordingEncounterMetadata[]) => void;
   setHideNpcEvents: (hide: boolean) => void;
   toggleEventTypeVisibility: (type: GameEvent["type"]) => void;
+  updateEventName: (eventId: string, name: string | undefined) => void;
+  pendingRenameEventId: string | null;
+  clearPendingRename: () => void;
   clearEvents: () => void;
 }
 
@@ -60,6 +68,7 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
   const [encounters, setEncounters] = useState<RecordingEncounterMetadata[]>([]);
   const [hideNpcEvents, setHideNpcEvents] = useState(true);
   const [eventTypeVisibility, setEventTypeVisibility] = useState(DEFAULT_EVENT_TYPE_VISIBILITY);
+  const [pendingRenameEventId, setPendingRenameEventId] = useState<string | null>(null);
 
   const filteredEvents = useMemo(() => {
     return events.filter((event) => shouldShowGameEvent(event, hideNpcEvents, eventTypeVisibility));
@@ -74,15 +83,30 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
 
   const addEvent = useCallback((event: GameEvent) => {
     setEvents((previousEvents) => insertEventByTimestamp(previousEvents, event));
+    if (event.type === "manual" && shouldPromptManualMarkerName()) {
+      setPendingRenameEventId(event.id);
+    }
   }, []);
 
   const replaceEvents = useCallback((nextEvents: GameEvent[]) => {
     setEvents(sortEventsByTimestamp(nextEvents));
+    setPendingRenameEventId(null);
+  }, []);
+
+  const updateEventName = useCallback((eventId: string, name: string | undefined) => {
+    setEvents((previousEvents) =>
+      previousEvents.map((event) => (event.id === eventId ? { ...event, name } : event)),
+    );
+  }, []);
+
+  const clearPendingRename = useCallback(() => {
+    setPendingRenameEventId(null);
   }, []);
 
   const clearEvents = useCallback(() => {
     setEvents([]);
     setEncounters([]);
+    setPendingRenameEventId(null);
   }, []);
 
   return (
@@ -98,6 +122,9 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
         setEncounters,
         setHideNpcEvents,
         toggleEventTypeVisibility,
+        updateEventName,
+        pendingRenameEventId,
+        clearPendingRename,
         clearEvents,
       }}
     >

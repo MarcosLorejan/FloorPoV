@@ -239,8 +239,8 @@ export function VideoPlayer() {
       ? { width: immersiveVideoStyle.width }
       : undefined;
   const playerSurfaceClassName = isImmersiveLayerActive
-    ? "fixed z-[200] flex items-center justify-center overflow-hidden bg-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/45"
-    : "fixed z-40 overflow-hidden bg-neutral-950/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/45";
+    ? "theme-on-media fixed z-[200] flex items-center justify-center overflow-hidden bg-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/45"
+    : "theme-on-media fixed z-40 overflow-hidden bg-neutral-950/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/45";
 
   useEffect(() => {
     if (!showSpeedMenu && !showShortcutHelp) {

@@ -8,6 +8,9 @@ pub(crate) struct ImportantCombatEvent {
     pub(crate) source: Option<String>,
     pub(crate) target: Option<String>,
     pub(crate) target_kind: Option<String>,
+    /// Spell the event acted upon, such as the dispelled aura or the
+    /// interrupted cast. Empty for events without an `extraSpellName` column.
+    pub(crate) extra_spell_name: Option<String>,
     pub(crate) zone_name: Option<String>,
     pub(crate) encounter_name: Option<String>,
     pub(crate) encounter_category: Option<String>,
@@ -106,6 +109,7 @@ pub(crate) fn parse_important_combat_event(
         source: parsed_line.source,
         target: parsed_line.target,
         target_kind: parsed_line.target_kind,
+        extra_spell_name: parsed_line.extra_spell_name,
         zone_name: context.current_zone.clone(),
         encounter_name,
         encounter_category,
@@ -196,6 +200,7 @@ struct ParsedLogLine {
     source: Option<String>,
     target: Option<String>,
     target_kind: Option<String>,
+    extra_spell_name: Option<String>,
     fields: Vec<String>,
 }
 
@@ -229,8 +234,25 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
         source: normalize_entity_name(source_name, source_kind.as_deref()),
         target: normalize_entity_name(dest_name, target_kind.as_deref()),
         target_kind,
+        extra_spell_name: extract_extra_spell_name(raw_event_type, &remaining_fields),
         fields: remaining_fields,
     })
+}
+
+/// Column index of `extraSpellName`, which follows the caster's own spell
+/// payload (`spellId`, `spellName`, `spellSchool`) and the affected spell id.
+const EXTRA_SPELL_NAME_FIELD_INDEX: usize = 12;
+
+fn extract_extra_spell_name(raw_event_type: &str, fields: &[String]) -> Option<String> {
+    if !matches!(raw_event_type, "SPELL_DISPEL" | "SPELL_INTERRUPT") {
+        return None;
+    }
+
+    normalize_name(
+        fields
+            .get(EXTRA_SPELL_NAME_FIELD_INDEX)
+            .map(|value| value.as_str()),
+    )
 }
 
 fn normalize_important_event_type(event_type: &str, fields: &[String]) -> Option<&'static str> {

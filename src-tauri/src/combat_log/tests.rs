@@ -183,6 +183,121 @@ fn records_combat_res_from_spell_resurrect() {
 }
 
 #[test]
+fn records_dispel_with_the_dispelled_spell() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let dispel_line = build_line(
+        "SPELL_DISPEL",
+        &[
+            "Player-1111-00000005",
+            "\"ShamanOne-NA\"",
+            "0x514",
+            "0x0",
+            "Creature-0-0-0-0-1005-0000000000",
+            "\"Enemy5\"",
+            "0x10a48",
+            "0x0",
+            "370",
+            "\"Purge\"",
+            "8",
+            "8178",
+            "\"Grounding Totem Effect\"",
+            "8",
+            "BUFF",
+        ],
+    );
+    accumulator.consume_combat_log_line(&dispel_line, 18.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.important_events.len(), 1);
+
+    let dispel_event = &snapshot.important_events[0];
+    assert_eq!(dispel_event.event_type, "SPELL_DISPEL");
+    assert_eq!(dispel_event.source.as_deref(), Some("ShamanOne-NA"));
+    assert_eq!(dispel_event.target.as_deref(), Some("Enemy5"));
+    assert_eq!(dispel_event.target_kind.as_deref(), Some("NPC"));
+    assert_eq!(
+        dispel_event.extra_spell_name.as_deref(),
+        Some("Grounding Totem Effect")
+    );
+    assert_eq!(
+        snapshot.important_event_counts.get("SPELL_DISPEL").copied(),
+        Some(1)
+    );
+}
+
+#[test]
+fn records_interrupt_with_the_interrupted_spell() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let interrupt_line = build_line(
+        "SPELL_INTERRUPT",
+        &[
+            "Player-1111-00000006",
+            "\"RogueOne-NA\"",
+            "0x514",
+            "0x0",
+            "Creature-0-0-0-0-1006-0000000000",
+            "\"Enemy6\"",
+            "0x10a48",
+            "0x0",
+            "1766",
+            "\"Kick\"",
+            "1",
+            "451234",
+            "\"Void Bolt\"",
+            "32",
+        ],
+    );
+    accumulator.consume_combat_log_line(&interrupt_line, 22.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.important_events.len(), 1);
+
+    let interrupt_event = &snapshot.important_events[0];
+    assert_eq!(interrupt_event.event_type, "SPELL_INTERRUPT");
+    assert_eq!(
+        interrupt_event.extra_spell_name.as_deref(),
+        Some("Void Bolt")
+    );
+}
+
+#[test]
+fn keeps_dispel_without_a_reported_extra_spell() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let truncated_dispel_line = build_line(
+        "SPELL_DISPEL",
+        &[
+            "Player-1111-00000007",
+            "\"PriestOne-NA\"",
+            "0x514",
+            "0x0",
+            "Player-1111-00000008",
+            "\"PriestTwo-NA\"",
+            "0x514",
+            "0x0",
+            "527",
+            "\"Purify\"",
+            "2",
+            "0",
+        ],
+    );
+    accumulator.consume_combat_log_line(&truncated_dispel_line, 9.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.important_events.len(), 1);
+
+    let dispel_event = &snapshot.important_events[0];
+    assert_eq!(dispel_event.event_type, "SPELL_DISPEL");
+    assert_eq!(dispel_event.target.as_deref(), Some("PriestTwo-NA"));
+    assert_eq!(dispel_event.extra_spell_name, None);
+}
+
+#[test]
 fn ignores_unrelated_spell_cast_success() {
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.begin_recording_session(0.0);
@@ -949,6 +1064,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: Some("Atlas".to_string()),
             target_kind: Some("PLAYER".to_string()),
+            extra_spell_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: None,
             encounter_category: None,
@@ -961,6 +1077,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: None,
             target_kind: None,
+            extra_spell_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),
@@ -973,6 +1090,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: None,
             target_kind: None,
+            extra_spell_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),

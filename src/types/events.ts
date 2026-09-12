@@ -1,10 +1,12 @@
 export interface GameEvent {
   id: string;
   timestamp: number;
-  type: "kill" | "death" | "manual" | "interrupt" | "bloodlust" | "combatRes";
+  type: "kill" | "death" | "manual" | "interrupt" | "bloodlust" | "combatRes" | "dispel";
   source?: string;
   target?: string;
   targetKind?: string;
+  /** Dispelled aura or interrupted cast, when the combat log reports one. */
+  extraSpellName?: string;
 }
 
 export interface RecordingImportantEventMetadata {
@@ -14,6 +16,7 @@ export interface RecordingImportantEventMetadata {
   source?: string;
   target?: string;
   targetKind?: string;
+  extraSpellName?: string;
   zoneName?: string;
   encounterName?: string;
   encounterCategory?: string;
@@ -94,11 +97,56 @@ export interface ParseCombatLogDebugResult {
 
 export const EVENT_SEEK_OFFSET_SECONDS = 5;
 
+function eventActorName(name?: string): string {
+  const trimmedName = name?.trim();
+  return trimmedName ? trimmedName : "Unknown";
+}
+
+function describeSourceTargetAction(event: GameEvent, verb: string): string {
+  const source = eventActorName(event.source);
+  const target = eventActorName(event.target);
+
+  if (event.extraSpellName) {
+    return `${source} ${verb} ${event.extraSpellName} from ${target}`;
+  }
+
+  return `${source} ${verb} ${target}`;
+}
+
+export function getGameEventDescription(event: GameEvent): string {
+  if (event.type === "death") {
+    return `${eventActorName(event.target)} died`;
+  }
+
+  if (event.type === "manual") {
+    return "User marked this moment";
+  }
+
+  if (event.type === "interrupt") {
+    return describeSourceTargetAction(event, "interrupted");
+  }
+
+  if (event.type === "dispel") {
+    return describeSourceTargetAction(event, "dispelled");
+  }
+
+  if (event.type === "bloodlust") {
+    return `${eventActorName(event.source)} used Bloodlust`;
+  }
+
+  if (event.type === "combatRes") {
+    return `${eventActorName(event.source)} combat ressed ${eventActorName(event.target)}`;
+  }
+
+  return `${eventActorName(event.source)} killed ${eventActorName(event.target)}`;
+}
+
 const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "PARTY_KILL",
   "UNIT_DIED",
   "MANUAL_MARKER",
   "SPELL_INTERRUPT",
+  "SPELL_DISPEL",
   "BLOODLUST",
   "COMBAT_RES",
 ]);
@@ -139,6 +187,10 @@ function mapEventTypeToGameEventType(eventType: string): GameEvent["type"] {
     return "interrupt";
   }
 
+  if (eventType === "SPELL_DISPEL") {
+    return "dispel";
+  }
+
   if (eventType === "BLOODLUST") {
     return "bloodlust";
   }
@@ -174,6 +226,7 @@ export function convertRecordingMetadataToGameEvents(
         source: importantEvent.source,
         target: importantEvent.target,
         targetKind: importantEvent.targetKind,
+        extraSpellName: importantEvent.extraSpellName,
       }];
     })
     .sort((a, b) => a.timestamp - b.timestamp)
@@ -204,6 +257,7 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
     event.type === "death" ||
     event.type === "manual" ||
     event.type === "interrupt" ||
+    event.type === "dispel" ||
     event.type === "bloodlust" ||
     event.type === "combatRes"
   );
@@ -219,7 +273,12 @@ export function shouldShowGameEvent(
   }
 
   // These types are useful even when the dest unit is an NPC or the caster themselves.
-  if (event.type === "interrupt" || event.type === "bloodlust" || event.type === "combatRes") {
+  if (
+    event.type === "interrupt" ||
+    event.type === "dispel" ||
+    event.type === "bloodlust" ||
+    event.type === "combatRes"
+  ) {
     return true;
   }
 

@@ -91,7 +91,7 @@ function getEventMarkerClassName(eventType: string): string {
     case "COMBAT_RES":
       return "bg-emerald-200 border-emerald-50/85";
     case "SPELL_DISPEL":
-      return "bg-neutral-300 border-neutral-100/85";
+      return "bg-violet-200 border-violet-50/85";
     default:
       return "bg-neutral-200 border-neutral-50/80";
   }
@@ -129,7 +129,7 @@ function getEventIconClassName(eventType: string): string {
     case "COMBAT_RES":
       return "text-emerald-950";
     case "SPELL_DISPEL":
-      return "text-neutral-950";
+      return "text-violet-950";
     default:
       return "text-neutral-900";
   }

@@ -14,19 +14,29 @@ import { EventMarker, EventTypeFilter } from "./EventMarker";
 const EVENT_LIST_LABELS: Record<GameEvent["type"], string> = {
   death: "Death",
   interrupt: "Interrupt",
+  dispel: "Dispel",
   manual: "Marker",
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
 };
 
+function formatSourceTargetDetail(event: GameEvent): string {
+  const actors = `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+  if (!event.extraSpellName) {
+    return actors;
+  }
+
+  return `${actors} (${event.extraSpellName})`;
+}
+
 function getEventListDetail(event: GameEvent): string {
   if (event.type === "death") {
     return formatUnitName(event.target);
   }
 
-  if (event.type === "interrupt") {
-    return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+  if (event.type === "interrupt" || event.type === "dispel") {
+    return formatSourceTargetDetail(event);
   }
 
   if (event.type === "manual") {
@@ -88,16 +98,18 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           <ListVideo className="h-3.5 w-3.5 text-neutral-300" />
           Events
         </div>
-        <EventTypeFilter types={["death", "interrupt", "manual", "bloodlust", "combatRes"]} />
+        <EventTypeFilter
+          types={["death", "interrupt", "dispel", "manual", "bloodlust", "combatRes"]}
+        />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, bloodlust, combat res, and markers.
+            Load a recording to see deaths, interrupts, dispels, bloodlust, combat res, and markers.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, bloodlust, combat res, or markers in this recording.
+            No deaths, interrupts, dispels, bloodlust, combat res, or markers in this recording.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>

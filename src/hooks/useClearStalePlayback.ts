@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useMarker } from "../contexts/MarkerContext";
 import { useVideo } from "../contexts/VideoContext";
+import { compareFilePaths, shouldExitCompareMode } from "../utils/compare-playback";
 import { shouldClearStalePlayback } from "../utils/playback-session";
 
 interface PlaybackRecordingItem {
@@ -12,18 +13,34 @@ export function useClearStalePlayback(
   isListReady: boolean,
   onCleared?: () => void,
 ): void {
-  const { loadedFilePath, videoSrc, clearPlayback } = useVideo();
+  const { loadedFilePath, videoSrc, clearPlayback, compareVideos, exitCompareMode } = useVideo();
   const { clearEvents } = useMarker();
   const onClearedRef = useRef(onCleared);
   onClearedRef.current = onCleared;
 
   useEffect(() => {
-    if (!isListReady || !shouldClearStalePlayback(loadedFilePath, Boolean(videoSrc), recordings)) {
+    if (!isListReady) {
       return;
     }
 
-    clearPlayback();
-    clearEvents();
-    onClearedRef.current?.();
-  }, [clearEvents, clearPlayback, isListReady, loadedFilePath, recordings, videoSrc]);
+    if (shouldClearStalePlayback(loadedFilePath, Boolean(videoSrc), recordings)) {
+      clearPlayback();
+      clearEvents();
+      onClearedRef.current?.();
+      return;
+    }
+
+    if (shouldExitCompareMode(compareFilePaths(compareVideos), recordings)) {
+      exitCompareMode();
+    }
+  }, [
+    clearEvents,
+    clearPlayback,
+    compareVideos,
+    exitCompareMode,
+    isListReady,
+    loadedFilePath,
+    recordings,
+    videoSrc,
+  ]);
 }

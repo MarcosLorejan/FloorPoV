@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import { Clock3, Film, HardDrive, RefreshCw, Trash2, XCircle } from 'lucide-react';
+import { Clock3, Columns2, Film, HardDrive, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRecording } from '../../contexts/RecordingContext';
@@ -11,6 +11,7 @@ import { panelVariants, smoothTransition } from '../../lib/motion';
 import { RecordingInfo } from '../../types/recording';
 import { type GameMode } from '../../types/ui';
 import { formatBytes, formatDate } from '../../utils/format';
+import { canEnterCompareMode, isComparedRecordingPath } from '../../utils/compare-playback';
 import { toPlaybackSource } from '../../utils/recording-playback';
 import { getRecordingDisplayTitle, isRecordingInGameMode } from '../../utils/recording-title';
 import { DeleteConfirmDialog } from '../ui/DeleteConfirmDialog';
@@ -89,7 +90,7 @@ export function RecordingsList({
   onRecordingActivate,
 }: RecordingsListProps) {
   const { settings } = useSettings();
-  const { loadVideo, videoSrc, isVideoLoading } = useVideo();
+  const { loadVideo, videoSrc, isVideoLoading, compareVideos, enterCompareMode } = useVideo();
   const { isRecording, loadPlaybackMetadata } = useRecording();
   const reduceMotion = useReducedMotion();
   const { recordings, isLoading, error: listError, loadRecordings, setRecordings } = useRecordingsList();
@@ -184,6 +185,53 @@ export function RecordingsList({
 
     setPendingDeleteRecordings(selectedRecordings);
   }, [isActionLocked, selectedRecordings]);
+
+  const handleCompareSelectedRecordings = useCallback(async () => {
+    if (isActionLocked || !canEnterCompareMode(selectedRecordingCount)) {
+      return;
+    }
+
+    const leftRecording = selectedRecordings[0];
+    const rightRecording = selectedRecordings[1];
+    if (!leftRecording || !rightRecording) {
+      return;
+    }
+
+    setLoadingRecordingPath(leftRecording.file_path);
+    setDeleteError(null);
+
+    try {
+      const [leftSrc, rightSrc] = await Promise.all([
+        toPlaybackSource(leftRecording.file_path, settings.outputFolder),
+        toPlaybackSource(rightRecording.file_path, settings.outputFolder),
+      ]);
+
+      enterCompareMode(
+        {
+          src: leftSrc,
+          filePath: leftRecording.file_path,
+          title: getRecordingDisplayTitle(leftRecording, gameModeContext),
+        },
+        {
+          src: rightSrc,
+          filePath: rightRecording.file_path,
+          title: getRecordingDisplayTitle(rightRecording, gameModeContext),
+        },
+      );
+    } catch (compareError) {
+      console.error('Failed to start compare mode:', compareError);
+      setDeleteError('Could not load the selected recordings for compare.');
+    } finally {
+      setLoadingRecordingPath(null);
+    }
+  }, [
+    enterCompareMode,
+    gameModeContext,
+    isActionLocked,
+    selectedRecordingCount,
+    selectedRecordings,
+    settings.outputFolder,
+  ]);
 
   const cancelDeleteRecording = useCallback(() => {
     if (isDeletingRecordings) {
@@ -400,6 +448,22 @@ export function RecordingsList({
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      void handleCompareSelectedRecordings();
+                    }}
+                    disabled={isActionLocked || !canEnterCompareMode(selectedRecordingCount)}
+                    title={
+                      canEnterCompareMode(selectedRecordingCount)
+                        ? "Compare the two selected recordings"
+                        : "Select exactly two recordings to compare"
+                    }
+                    className="inline-flex h-6 items-center gap-1 rounded-sm border border-white/20 bg-black/20 px-2 text-xs text-neutral-200 transition-colors hover:bg-white/10 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Columns2 className="h-3.5 w-3.5 shrink-0" />
+                    Compare
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleDeleteSelectedRecordings}
                     disabled={isActionLocked || selectedRecordings.length === 0}
                     className="inline-flex h-6 items-center gap-1 rounded-sm border border-rose-300/35 bg-rose-500/14 px-2 text-xs font-medium text-rose-100 transition-colors hover:bg-rose-500/22 hover:text-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
@@ -417,6 +481,7 @@ export function RecordingsList({
               const isLoadedRecording = videoSrc === recordingSource;
               const isSelectedRecording = selectedRecordingPathSet.has(recording.file_path);
               const isActiveRecording = activeRecordingPath === recording.file_path;
+              const isComparedRecording = isComparedRecordingPath(recording.file_path, compareVideos);
               const modeDetails = getModeDetails(recording, gameModeContext);
               const displayTitle = getRecordingDisplayTitle(recording, gameModeContext);
 
@@ -424,7 +489,7 @@ export function RecordingsList({
                 <motion.li
                   key={`${recording.filename}-${recording.created_at}`}
                   className={`grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 rounded-sm border text-left transition-colors hover:bg-white/5 ${
-                    isLoadedRecording || isActiveRecording
+                    isLoadedRecording || isActiveRecording || isComparedRecording
                       ? 'border-emerald-300/45 bg-emerald-500/16 hover:border-emerald-300/55'
                       : isSelectedRecording
                           ? 'border-emerald-300/35 bg-emerald-500/10 hover:border-emerald-300/45'
@@ -451,7 +516,11 @@ export function RecordingsList({
                     onMouseDown={(event) => handleRecordingRowMouseDown(event, recording)}
                     onClick={(event) => handleRecordingRowClick(event, recording)}
                     disabled={isActionLocked}
-                    aria-current={isLoadedRecording || isActiveRecording ? 'true' : undefined}
+                    aria-current={
+                      isLoadedRecording || isActiveRecording || isComparedRecording
+                        ? 'true'
+                        : undefined
+                    }
                     className="min-w-0 flex w-full items-center justify-between gap-2 rounded-sm px-2.5 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="min-w-0 flex items-center gap-2">

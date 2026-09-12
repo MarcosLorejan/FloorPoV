@@ -6,6 +6,7 @@ import { useVideo } from "../../contexts/VideoContext";
 import { panelVariants, smoothTransition } from "../../lib/motion";
 import { MEDIA_SECTION_RESIZE_DELTA } from "../../types/settings";
 import { PlaybackEventList } from "../events/PlaybackEventList";
+import { CompareVideoPlayer } from "./CompareVideoPlayer";
 import { RecordingsList } from "./RecordingsList";
 import { VideoPlayer } from "./VideoPlayer";
 
@@ -13,7 +14,7 @@ const IDLE_MEDIA_HEIGHT = 220;
 const MIN_ACTIVE_MEDIA_HEIGHT = 320;
 
 export function HomePage() {
-  const { videoSrc } = useVideo();
+  const { videoSrc, isCompareMode } = useVideo();
   const { isRecording } = useRecording();
   const reduceMotion = useReducedMotion();
   const [isResizingMedia, setIsResizingMedia] = useState(false);
@@ -21,7 +22,8 @@ export function HomePage() {
     typeof window === "undefined" ? 520 : Math.round(window.innerHeight * 0.52),
   );
 
-  const showPlaybackWorkspace = Boolean(videoSrc) || isRecording;
+  const showPlaybackWorkspace = Boolean(videoSrc) || isRecording || isCompareMode;
+  const showComparePlayer = isCompareMode && !isRecording;
   const mediaSectionMaxHeight =
     typeof window === "undefined" ? MIN_ACTIVE_MEDIA_HEIGHT : Math.max(MIN_ACTIVE_MEDIA_HEIGHT, Math.round(window.innerHeight * 0.66));
   const displayedMediaHeight = showPlaybackWorkspace ? mediaSectionHeight : IDLE_MEDIA_HEIGHT;
@@ -92,7 +94,7 @@ export function HomePage() {
           Library
         </h1>
         <p className="text-xs uppercase tracking-[0.12em] text-neutral-500">
-          Play a recording from this folder
+          {isCompareMode ? "Comparing two recordings" : "Play a recording from this folder"}
         </p>
       </header>
 
@@ -100,10 +102,10 @@ export function HomePage() {
         className="flex w-full shrink-0 overflow-hidden"
         style={{ height: displayedMediaHeight }}
       >
-        <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-neutral-950/70">
-          <VideoPlayer />
+        <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-neutral-950/70">
+          {showComparePlayer ? <CompareVideoPlayer /> : <VideoPlayer />}
         </main>
-        {showPlaybackWorkspace && <PlaybackEventList />}
+        {showPlaybackWorkspace && !showComparePlayer && <PlaybackEventList />}
       </section>
 
       {showPlaybackWorkspace && (

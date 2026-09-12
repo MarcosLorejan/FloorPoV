@@ -485,6 +485,8 @@ fn is_structural_event_type(event_type: &str) -> bool {
             | EVENT_ENCOUNTER_END
             | "BLOODLUST"
             | "COMBAT_RES"
+            | "CROWD_CONTROL"
+            | "CROWD_CONTROL_BREAK"
     )
 }
 

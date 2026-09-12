@@ -1,3 +1,6 @@
+import { DEFAULT_APP_THEME, type AppTheme } from '../utils/theme';
+
+export type { AppTheme };
 export type VideoQuality = 'low' | 'medium' | 'high' | 'ultra';
 export type VideoEncoderPreference = 'auto' | 'h264_nvenc' | 'h264_qsv' | 'h264_amf' | 'libx264';
 export type FrameRate = 30 | 60;
@@ -23,6 +26,7 @@ export interface RecordingSettings {
   enableAutoUpdate: boolean;
   startMinimized: boolean;
   showFullscreenEventsPanel: boolean;
+  appTheme: AppTheme;
   markerHotkey: MarkerHotkey;
 }
 
@@ -44,6 +48,7 @@ export const DEFAULT_SETTINGS: RecordingSettings = {
   enableAutoUpdate: true,
   startMinimized: true,
   showFullscreenEventsPanel: true,
+  appTheme: DEFAULT_APP_THEME,
   markerHotkey: 'F9',
 };
 

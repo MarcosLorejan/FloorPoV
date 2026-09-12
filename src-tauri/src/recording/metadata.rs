@@ -156,6 +156,18 @@ impl RecordingMetadata {
         self.players = snapshot.players;
     }
 
+    pub(crate) fn has_combat_content(&self) -> bool {
+        self.zone_name.is_some()
+            || self.encounter_name.is_some()
+            || self.encounter_category.is_some()
+            || self.key_level.is_some()
+            || !self.encounters.is_empty()
+            || !self.important_events.is_empty()
+            || !self.important_event_counts.is_empty()
+            || self.important_events_dropped_count > 0
+            || !self.players.is_empty()
+    }
+
     fn is_mythic_plus(&self) -> bool {
         match self.encounter_category.as_deref() {
             Some("mythicPlus") => true,
@@ -207,6 +219,28 @@ impl RecordingMetadataSnapshot {
 
 pub(crate) fn metadata_sidecar_path(recording_path: &Path) -> PathBuf {
     recording_path.with_extension("meta.json")
+}
+
+pub(crate) fn metadata_sidecar_backup_path(recording_path: &Path) -> PathBuf {
+    recording_path.with_extension("meta.json.bak")
+}
+
+pub(crate) fn backup_recording_metadata(recording_path: &Path) -> Result<Option<PathBuf>, String> {
+    let sidecar_path = metadata_sidecar_path(recording_path);
+    if !sidecar_path.exists() {
+        return Ok(None);
+    }
+
+    let backup_path = metadata_sidecar_backup_path(recording_path);
+    std::fs::copy(&sidecar_path, &backup_path).map_err(|error| {
+        format!(
+            "Failed to back up recording metadata '{}' to '{}': {error}",
+            sidecar_path.display(),
+            backup_path.display()
+        )
+    })?;
+
+    Ok(Some(backup_path))
 }
 
 pub(crate) fn read_recording_metadata(
@@ -290,6 +324,16 @@ pub(crate) fn write_recording_metadata(
 
 pub(crate) fn delete_recording_metadata(recording_path: &Path) -> Result<(), String> {
     let sidecar_path = metadata_sidecar_path(recording_path);
+    let backup_path = metadata_sidecar_backup_path(recording_path);
+    if backup_path.exists() {
+        if let Err(error) = std::fs::remove_file(&backup_path) {
+            tracing::warn!(
+                backup_path = %backup_path.display(),
+                "Failed to delete recording metadata backup: {error}"
+            );
+        }
+    }
+
     match std::fs::remove_file(&sidecar_path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
@@ -472,10 +516,10 @@ fn temporary_sidecar_path(sidecar_path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        delete_recording_metadata, library_filename_stem, metadata_sidecar_path,
-        read_recording_metadata, rename_finalized_recording_if_named, slugify_library_name,
-        timestamp_label_from_stem, write_recording_metadata, RecordingImportantEventMetadata,
-        RecordingMetadata,
+        delete_recording_metadata, library_filename_stem, metadata_sidecar_backup_path,
+        metadata_sidecar_path, read_recording_metadata, rename_finalized_recording_if_named,
+        slugify_library_name, timestamp_label_from_stem, write_recording_metadata,
+        RecordingImportantEventMetadata, RecordingMetadata,
     };
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -499,6 +543,10 @@ mod tests {
         assert_eq!(
             sidecar_path.to_string_lossy(),
             r"C:\Recordings\capture.meta.json"
+        );
+        assert_eq!(
+            metadata_sidecar_backup_path(recording_path).to_string_lossy(),
+            r"C:\Recordings\capture.meta.json.bak"
         );
     }
 

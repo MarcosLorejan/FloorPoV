@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { invoke } from "@tauri-apps/api/core";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
+  Camera,
   Clapperboard,
   Keyboard,
   ListVideo,
@@ -15,6 +17,7 @@ import {
   SkipForward,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react";
 import { useVideo } from "../../contexts/VideoContext";
 import { useRecording } from "../../contexts/RecordingContext";
@@ -25,7 +28,12 @@ import { EventTooltip } from "../events/EventTooltip";
 import { PlaybackEventList } from "../events/PlaybackEventList";
 import { ControlIconButton } from "./ControlIconButton";
 import { EVENT_SEEK_OFFSET_SECONDS, isVideoSeekBarEvent, type GameEvent } from "../../types/events";
+import { getErrorMessage } from "../../services/tauri";
 import { formatTime } from "../../utils/format";
+import {
+  screenshotFileNameFromPath,
+  screenshotFileStemFromPath,
+} from "../../utils/playback-screenshot";
 import {
   documentHasOpenModalDialog,
   isEditableKeyboardTarget,
@@ -47,6 +55,7 @@ const PLAYBACK_SHORTCUTS = [
   { keys: "← / →", action: "Seek 1 second when the player is focused" },
   { keys: "Shift + ← / →", action: "Seek 5 seconds when the player is focused" },
   { keys: "Home / End", action: "Jump to start / end when the player is focused" },
+  { keys: "S", action: "Save a screenshot of the current frame" },
 ];
 
 export function VideoPlayer() {
@@ -59,6 +68,7 @@ export function VideoPlayer() {
     volume,
     playbackRate,
     videoSrc,
+    loadedFilePath,
     togglePlay,
     setVolume,
     setPlaybackRate,
@@ -102,6 +112,12 @@ export function VideoPlayer() {
   const [seekBarTooltipX, setSeekBarTooltipX] = useState(0);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [hoverPreview, setHoverPreview] = useState<{ time: number; x: number } | null>(null);
+  const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
+  const [screenshotNotice, setScreenshotNotice] = useState<{
+    kind: "error" | "success";
+    message: string;
+  } | null>(null);
+  const isCapturingScreenshotRef = useRef(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   const showVideo = Boolean(videoSrc) && !isRecording;
@@ -141,6 +157,53 @@ export function VideoPlayer() {
 
     seek(videoElement.currentTime + deltaSeconds);
   }, [seek, videoRef]);
+
+  const capturePlaybackScreenshot = useCallback(async () => {
+    if (isCapturingScreenshotRef.current || !showVideo) {
+      return;
+    }
+
+    if (!settings.outputFolder) {
+      setScreenshotNotice({
+        kind: "error",
+        message: "Choose an output folder in Settings before saving screenshots.",
+      });
+      return;
+    }
+
+    if (!loadedFilePath) {
+      setScreenshotNotice({
+        kind: "error",
+        message: "Load a recording before capturing a screenshot.",
+      });
+      return;
+    }
+
+    isCapturingScreenshotRef.current = true;
+    setIsCapturingScreenshot(true);
+    setScreenshotNotice(null);
+
+    try {
+      const savedPath = await invoke<string>("save_playback_screenshot", {
+        outputFolder: settings.outputFolder,
+        recordingPath: loadedFilePath,
+        timestampSeconds: currentTime,
+        fileStem: screenshotFileStemFromPath(loadedFilePath),
+      });
+      setScreenshotNotice({
+        kind: "success",
+        message: `Saved ${screenshotFileNameFromPath(savedPath)}`,
+      });
+    } catch (error) {
+      setScreenshotNotice({
+        kind: "error",
+        message: getErrorMessage(error) || "Could not save the screenshot.",
+      });
+    } finally {
+      isCapturingScreenshotRef.current = false;
+      setIsCapturingScreenshot(false);
+    }
+  }, [currentTime, loadedFilePath, settings.outputFolder, showVideo]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const seekBarEvents = useMemo(() => {
@@ -293,6 +356,20 @@ export function VideoPlayer() {
     }
 
     const handlePlaybackShortcut = (event: KeyboardEvent) => {
+      if (
+        !event.defaultPrevented &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !isEditableKeyboardTarget(event.target) &&
+        !documentHasOpenModalDialog() &&
+        (event.key === "s" || event.key === "S")
+      ) {
+        event.preventDefault();
+        void capturePlaybackScreenshot();
+        return;
+      }
+
       const action = resolvePlaybackShortcut(event, {
         isEditableTarget: isEditableKeyboardTarget(event.target),
         isModalDialogOpen: documentHasOpenModalDialog(),
@@ -340,7 +417,7 @@ export function VideoPlayer() {
     return () => {
       window.removeEventListener("keydown", handlePlaybackShortcut);
     };
-  }, [duration, seek, showVideo, skipPlaybackBySeconds, togglePlay]);
+  }, [capturePlaybackScreenshot, duration, seek, showVideo, skipPlaybackBySeconds, togglePlay]);
 
   useEffect(() => {
     if (!showVideo) {
@@ -372,7 +449,23 @@ export function VideoPlayer() {
     if (!videoSrc) {
       setVideoNativeSize({ width: 0, height: 0 });
     }
+
+    setScreenshotNotice(null);
   }, [videoSrc]);
+
+  useEffect(() => {
+    if (screenshotNotice?.kind !== "success") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setScreenshotNotice(null);
+    }, 3000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [screenshotNotice]);
 
   useEffect(() => {
     const updateInlineSurfaceRect = () => {
@@ -695,6 +788,35 @@ export function VideoPlayer() {
         </div>
       )}
 
+      {screenshotNotice && (
+        <div
+          className={
+            screenshotNotice.kind === "error"
+              ? "absolute left-3 right-3 top-3 z-20 inline-flex items-start gap-2 rounded-sm border border-red-300/35 bg-red-500/15 px-3 py-2 text-red-100"
+              : "absolute left-3 right-3 top-3 z-20 inline-flex items-start gap-2 rounded-sm border border-emerald-300/35 bg-emerald-500/15 px-3 py-2 text-emerald-100"
+          }
+          role={screenshotNotice.kind === "error" ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {screenshotNotice.kind === "error" ? (
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : (
+            <Camera className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
+          <p className="min-w-0 flex-1 text-xs leading-5">{screenshotNotice.message}</p>
+          {screenshotNotice.kind === "error" && (
+            <button
+              type="button"
+              className="rounded p-0.5 text-red-100 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
+              onClick={() => setScreenshotNotice(null)}
+              aria-label="Dismiss screenshot error"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       {!videoSrc && !isRecording && (
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <>
@@ -943,6 +1065,20 @@ export function VideoPlayer() {
                   </div>
                 )}
               </div>
+
+              <ControlIconButton
+                label="Save screenshot (S)"
+                onClick={() => {
+                  void capturePlaybackScreenshot();
+                }}
+                disabled={duration <= 0 || isCapturingScreenshot || isVideoLoading}
+              >
+                {isCapturingScreenshot ? (
+                  <LoaderCircle className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Camera className="w-5 h-5" />
+                )}
+              </ControlIconButton>
 
               <div ref={shortcutHelpRef} className="relative">
                 <ControlIconButton

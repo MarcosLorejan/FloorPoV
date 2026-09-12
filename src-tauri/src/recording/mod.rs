@@ -13,6 +13,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
 pub use model::RecordingState;
+pub(crate) use ffmpeg::resolve_ffmpeg_binary_path;
+pub(crate) use model::CREATE_NO_WINDOW;
 use model::{CaptureInput, RecordingSessionConfig};
 
 fn sanitize_for_filename(input: &str) -> String {

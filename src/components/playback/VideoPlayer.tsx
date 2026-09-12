@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Camera,
   Clapperboard,
+  Keyboard,
   ListVideo,
   LoaderCircle,
   Maximize,
@@ -33,6 +34,12 @@ import {
   screenshotFileNameFromPath,
   screenshotFileStemFromPath,
 } from "../../utils/playback-screenshot";
+import {
+  documentHasOpenModalDialog,
+  isEditableKeyboardTarget,
+  isPlayerKeyboardFocus,
+  resolvePlaybackShortcut,
+} from "../../utils/playback-shortcuts";
 import { smoothTransition } from "../../lib/motion";
 
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -41,18 +48,15 @@ const COARSE_SEEK_SECONDS = 5;
 const SKIP_SEEK_SECONDS = 10;
 const FULLSCREEN_EVENTS_PANEL_WIDTH_PX = 320;
 const FULLSCREEN_EVENTS_PANEL_ID = "fullscreen-events-panel";
-
-function isEditableKeyboardTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
-  if (target.isContentEditable) {
-    return true;
-  }
-
-  return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
-}
+const PLAYBACK_SHORTCUT_HELP_ID = "playback-shortcut-help";
+const PLAYBACK_SHORTCUTS = [
+  { keys: "Space", action: "Play / pause" },
+  { keys: "J / L", action: "Seek 10 seconds back / forward" },
+  { keys: "← / →", action: "Seek 1 second when the player is focused" },
+  { keys: "Shift + ← / →", action: "Seek 5 seconds when the player is focused" },
+  { keys: "Home / End", action: "Jump to start / end when the player is focused" },
+  { keys: "S", action: "Save a screenshot of the current frame" },
+];
 
 export function VideoPlayer() {
   const {
@@ -85,11 +89,13 @@ export function VideoPlayer() {
   const progressRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
   const speedMenuRef = useRef<HTMLDivElement>(null);
+  const shortcutHelpRef = useRef<HTMLDivElement>(null);
   const immersiveSurfaceRef = useRef<HTMLDivElement>(null);
   const fullscreenEventsTabRef = useRef<HTMLButtonElement>(null);
   const previousImmersiveModeRef = useRef(false);
   const tweenSurfaceUntilRef = useRef(0);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [volumeBeforeMute, setVolumeBeforeMute] = useState(1);
   const [isImmersiveMode, setIsImmersiveMode] = useState(false);
   const [isImmersiveLayerActive, setIsImmersiveLayerActive] = useState(false);
@@ -112,6 +118,7 @@ export function VideoPlayer() {
     message: string;
   } | null>(null);
   const isCapturingScreenshotRef = useRef(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   const showVideo = Boolean(videoSrc) && !isRecording;
   const canShowFullscreenEvents = isImmersiveMode && showVideo && settings.showFullscreenEventsPanel;
@@ -232,22 +239,36 @@ export function VideoPlayer() {
       ? { width: immersiveVideoStyle.width }
       : undefined;
   const playerSurfaceClassName = isImmersiveLayerActive
-    ? "fixed z-[200] flex items-center justify-center overflow-hidden bg-neutral-950"
-    : "fixed z-40 overflow-hidden bg-neutral-950/90";
+    ? "fixed z-[200] flex items-center justify-center overflow-hidden bg-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/45"
+    : "fixed z-40 overflow-hidden bg-neutral-950/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/45";
 
   useEffect(() => {
-    if (!showSpeedMenu) {
+    if (!showSpeedMenu && !showShortcutHelp) {
       return;
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (!speedMenuRef.current?.contains(event.target as Node)) {
+      const pointerTarget = event.target as Node;
+      if (!speedMenuRef.current?.contains(pointerTarget)) {
         setShowSpeedMenu(false);
+      }
+
+      if (!shortcutHelpRef.current?.contains(pointerTarget)) {
+        setShowShortcutHelp(false);
       }
     };
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      if (showShortcutHelp) {
+        setShowShortcutHelp(false);
+        return;
+      }
+
+      if (showSpeedMenu) {
         setShowSpeedMenu(false);
       }
     };
@@ -258,7 +279,7 @@ export function VideoPlayer() {
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [showSpeedMenu]);
+  }, [showShortcutHelp, showSpeedMenu]);
 
   useEffect(() => {
     if (!isImmersiveMode) {
@@ -270,7 +291,7 @@ export function VideoPlayer() {
         return;
       }
 
-      if (showSpeedMenu) {
+      if (showSpeedMenu || showShortcutHelp) {
         return;
       }
 
@@ -289,7 +310,7 @@ export function VideoPlayer() {
     return () => {
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [isFullscreenEventsOpen, isImmersiveMode, showSpeedMenu]);
+  }, [isFullscreenEventsOpen, isImmersiveMode, showShortcutHelp, showSpeedMenu]);
 
   useEffect(() => {
     if (isImmersiveMode) {
@@ -335,37 +356,68 @@ export function VideoPlayer() {
     }
 
     const handlePlaybackShortcut = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) {
-        return;
-      }
-
-      if (isEditableKeyboardTarget(event.target)) {
-        return;
-      }
-
-      if (event.key === "j" || event.key === "J") {
-        event.preventDefault();
-        skipPlaybackBySeconds(-SKIP_SEEK_SECONDS);
-        return;
-      }
-
-      if (event.key === "l" || event.key === "L") {
-        event.preventDefault();
-        skipPlaybackBySeconds(SKIP_SEEK_SECONDS);
-        return;
-      }
-
-      if (event.key === "s" || event.key === "S") {
+      if (
+        !event.defaultPrevented &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !isEditableKeyboardTarget(event.target) &&
+        !documentHasOpenModalDialog() &&
+        (event.key === "s" || event.key === "S")
+      ) {
         event.preventDefault();
         void capturePlaybackScreenshot();
+        return;
       }
+
+      const action = resolvePlaybackShortcut(event, {
+        isEditableTarget: isEditableKeyboardTarget(event.target),
+        isModalDialogOpen: documentHasOpenModalDialog(),
+        isPlayerFocused: isPlayerKeyboardFocus(
+          immersiveSurfaceRef.current,
+          event.target,
+          document.activeElement,
+        ),
+      });
+
+      if (!action) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (action === "toggle-play") {
+        togglePlay();
+        return;
+      }
+
+      if (action === "seek-start") {
+        seek(0);
+        return;
+      }
+
+      if (action === "seek-end") {
+        seek(duration);
+        return;
+      }
+
+      const seekDeltaSeconds = {
+        "seek-back": -SKIP_SEEK_SECONDS,
+        "seek-forward": SKIP_SEEK_SECONDS,
+        "seek-back-fine": -FINE_SEEK_SECONDS,
+        "seek-forward-fine": FINE_SEEK_SECONDS,
+        "seek-back-coarse": -COARSE_SEEK_SECONDS,
+        "seek-forward-coarse": COARSE_SEEK_SECONDS,
+      }[action];
+
+      skipPlaybackBySeconds(seekDeltaSeconds);
     };
 
     window.addEventListener("keydown", handlePlaybackShortcut);
     return () => {
       window.removeEventListener("keydown", handlePlaybackShortcut);
     };
-  }, [capturePlaybackScreenshot, showVideo, skipPlaybackBySeconds]);
+  }, [capturePlaybackScreenshot, duration, seek, showVideo, skipPlaybackBySeconds, togglePlay]);
 
   useEffect(() => {
     if (!showVideo) {
@@ -393,6 +445,7 @@ export function VideoPlayer() {
   }, [isImmersiveMode, showVideo, syncIsPlaying, videoRef]);
 
   useEffect(() => {
+    setPlaybackError(null);
     if (!videoSrc) {
       setVideoNativeSize({ width: 0, height: 0 });
     }
@@ -615,6 +668,9 @@ export function VideoPlayer() {
     <motion.div
       ref={immersiveSurfaceRef}
       className={playerSurfaceClassName}
+      tabIndex={showVideo ? 0 : undefined}
+      role={showVideo ? "region" : undefined}
+      aria-label={showVideo ? "Video player" : undefined}
       initial={false}
       animate={
         surfacePosition
@@ -651,11 +707,16 @@ export function VideoPlayer() {
             playsInline
             disablePictureInPicture
             preload="auto"
+            onPointerDown={() => {
+              immersiveSurfaceRef.current?.focus({ preventScroll: true });
+            }}
             onLoadStart={() => {
               setVideoLoading(true);
+              setPlaybackError(null);
             }}
             onCanPlay={() => {
               setVideoLoading(false);
+              setPlaybackError(null);
             }}
             onError={(event) => {
               setVideoLoading(false);
@@ -667,10 +728,19 @@ export function VideoPlayer() {
                 readyState: event.currentTarget.readyState,
                 src: videoSrc,
               });
+
+              // Switching or clearing recordings aborts the pending load, which is not a
+              // playback failure the viewer needs to see.
+              if (mediaError?.code === MediaError.MEDIA_ERR_ABORTED) {
+                return;
+              }
+
+              setPlaybackError("This recording could not be played.");
             }}
             onTimeUpdate={(e) => updateTime(e.currentTarget.currentTime)}
             onLoadedMetadata={(e) => {
               setVideoLoading(false);
+              setPlaybackError(null);
               updateDuration(e.currentTarget.duration);
               setVideoNativeSize({
                 width: e.currentTarget.videoWidth,
@@ -683,6 +753,16 @@ export function VideoPlayer() {
               syncIsPlaying(false);
             }}
           />
+        </div>
+      )}
+
+      {showVideo && playbackError && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-neutral-950/80 px-6 text-center">
+          <AlertTriangle className="h-5 w-5 text-amber-200" />
+          <p className="text-sm font-medium text-neutral-100">{playbackError}</p>
+          <p className="text-xs text-neutral-400">
+            The file may be unreadable, or the output folder is not allowed for playback.
+          </p>
         </div>
       )}
 
@@ -760,7 +840,7 @@ export function VideoPlayer() {
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-3">
             <div className="flex items-center gap-2 sm:gap-3 md:shrink-0">
               <ControlIconButton
-                label="Skip back 10 seconds"
+                label="Skip back 10 seconds (J)"
                 onClick={() => {
                   skipPlaybackBySeconds(-SKIP_SEEK_SECONDS);
                 }}
@@ -770,14 +850,14 @@ export function VideoPlayer() {
               </ControlIconButton>
 
               <ControlIconButton
-                label={isPlaying ? "Pause playback" : "Play recording"}
+                label={isPlaying ? "Pause playback (Space)" : "Play recording (Space)"}
                 onClick={togglePlay}
               >
                 {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
               </ControlIconButton>
 
               <ControlIconButton
-                label="Skip forward 10 seconds"
+                label="Skip forward 10 seconds (L)"
                 onClick={() => {
                   skipPlaybackBySeconds(SKIP_SEEK_SECONDS);
                 }}
@@ -843,6 +923,9 @@ export function VideoPlayer() {
 
               <span className="text-xs font-mono text-white">
                 {formatTime(currentTime)} / {formatTime(duration)}
+              </span>
+              <span className="hidden text-[10px] uppercase tracking-[0.12em] text-neutral-500 sm:inline">
+                Space play/pause · J/L ±10s
               </span>
             </div>
 
@@ -943,7 +1026,10 @@ export function VideoPlayer() {
               <div ref={speedMenuRef} className="relative">
                 <button
                   type="button"
-                  onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                  onClick={() => {
+                    setShowShortcutHelp(false);
+                    setShowSpeedMenu(!showSpeedMenu);
+                  }}
                   className="rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-100 transition-colors hover:text-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
                   aria-haspopup="menu"
                   aria-expanded={showSpeedMenu}
@@ -993,6 +1079,45 @@ export function VideoPlayer() {
                   <Camera className="w-5 h-5" />
                 )}
               </ControlIconButton>
+
+              <div ref={shortcutHelpRef} className="relative">
+                <ControlIconButton
+                  label="Keyboard shortcuts"
+                  onClick={() => {
+                    setShowSpeedMenu(false);
+                    setShowShortcutHelp((currentValue) => !currentValue);
+                  }}
+                  pressed={showShortcutHelp}
+                  controls={PLAYBACK_SHORTCUT_HELP_ID}
+                >
+                  <Keyboard className="w-5 h-5" />
+                </ControlIconButton>
+                {showShortcutHelp && (
+                  <div
+                    id={PLAYBACK_SHORTCUT_HELP_ID}
+                    className="absolute bottom-full right-0 mb-2 w-72 rounded border border-neutral-700 bg-neutral-900 px-3 py-2 shadow-lg"
+                    role="region"
+                    aria-label="Keyboard shortcuts"
+                  >
+                    <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-neutral-400">
+                      Keyboard shortcuts
+                    </p>
+                    <ul className="space-y-1.5">
+                      {PLAYBACK_SHORTCUTS.map((shortcut) => (
+                        <li
+                          key={shortcut.keys}
+                          className="flex items-start justify-between gap-3 text-xs text-neutral-200"
+                        >
+                          <kbd className="shrink-0 rounded border border-white/15 bg-black/30 px-1.5 py-0.5 font-mono text-[11px] text-neutral-100">
+                            {shortcut.keys}
+                          </kbd>
+                          <span className="text-right text-neutral-300">{shortcut.action}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
 
               {canShowFullscreenEvents && (
                 <ControlIconButton

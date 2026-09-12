@@ -1,4 +1,4 @@
-import { GameEvent } from "../../types/events";
+import { GameEvent, GameEventType } from "../../types/events";
 import { formatCompactAmount, formatTime } from "../../utils/format";
 import { AnimatedTooltip } from "../ui/AnimatedTooltip";
 
@@ -7,7 +7,7 @@ interface EventTooltipProps {
   x: number;
 }
 
-const EVENT_LABELS: Record<GameEvent["type"], string> = {
+const EVENT_LABELS: Record<GameEventType, string> = {
   death: "Death",
   manual: "Manual Marker",
   interrupt: "Interrupt",
@@ -16,6 +16,8 @@ const EVENT_LABELS: Record<GameEvent["type"], string> = {
   combatRes: "Combat Res",
   bigHit: "Big Hit",
   heal: "Heal",
+  crowdControl: "Crowd Control",
+  crowdControlBreak: "Crowd Control Break",
 };
 
 function getEventDescription(event: GameEvent): string {
@@ -45,6 +47,18 @@ function getEventDescription(event: GameEvent): string {
 
   if (event.type === "heal") {
     return `${event.source ?? "Unknown"} healed ${event.target ?? "Unknown"}`;
+  }
+
+  if (event.type === "crowdControl") {
+    return `${event.source ?? "Unknown"} landed ${event.abilityName ?? "crowd control"} on ${
+      event.target ?? "Unknown"
+    }`;
+  }
+
+  if (event.type === "crowdControlBreak") {
+    return `${event.source ?? "Unknown"} broke ${event.abilityName ?? "crowd control"} on ${
+      event.target ?? "Unknown"
+    }`;
   }
 
   return `${event.source ?? "Unknown"} killed ${event.target ?? "Unknown"}`;

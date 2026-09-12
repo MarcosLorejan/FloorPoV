@@ -84,6 +84,10 @@ export function getEventTypeLabel(eventType: string): string {
       return "Big Hit";
     case "HEAL":
       return "Heal";
+    case "CROWD_CONTROL":
+      return "Crowd Control";
+    case "CROWD_CONTROL_BREAK":
+      return "Crowd Control Break";
     case "SPELL_DISPEL":
       return "Dispel";
     case "MANUAL_MARKER":

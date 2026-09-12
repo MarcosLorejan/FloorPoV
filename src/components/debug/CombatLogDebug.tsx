@@ -7,6 +7,7 @@ import {
   FolderOpen,
   RefreshCw,
   Heart,
+  Shield,
   ShieldOff,
   Skull,
   Snowflake,
@@ -55,6 +56,19 @@ interface TimelineTooltipState {
 
 const MAX_MARKERS_PER_SEGMENT = 120;
 
+const ENCOUNTER_TIMELINE_LEGEND_TYPES = [
+  "PARTY_KILL",
+  "UNIT_DIED",
+  "SPELL_INTERRUPT",
+  "BLOODLUST",
+  "COMBAT_RES",
+  "DEFENSIVE",
+  "BOSS_ABILITY",
+  "CROWD_CONTROL",
+  "CROWD_CONTROL_BREAK",
+  "SPELL_DISPEL",
+] as const;
+
 function getEncounterCategoryLabel(category: EncounterTimelineSegment["category"]): string {
   switch (category) {
     case "mythicPlus":
@@ -93,6 +107,10 @@ function getEventMarkerClassName(eventType: string): string {
       return "bg-sky-200 border-sky-50/85";
     case "COMBAT_RES":
       return "bg-emerald-200 border-emerald-50/85";
+    case "DEFENSIVE":
+      return "bg-cyan-200 border-cyan-50/85";
+    case "BOSS_ABILITY":
+      return "bg-fuchsia-200 border-fuchsia-50/85";
     case "CROWD_CONTROL":
       return "bg-violet-200 border-violet-50/85";
     case "CROWD_CONTROL_BREAK":
@@ -116,6 +134,10 @@ function getEventMarkerIcon(eventType: string) {
       return Zap;
     case "COMBAT_RES":
       return Heart;
+    case "DEFENSIVE":
+      return Shield;
+    case "BOSS_ABILITY":
+      return Sparkles;
     case "CROWD_CONTROL":
       return Snowflake;
     case "CROWD_CONTROL_BREAK":
@@ -139,6 +161,10 @@ function getEventIconClassName(eventType: string): string {
       return "text-sky-950";
     case "COMBAT_RES":
       return "text-emerald-950";
+    case "DEFENSIVE":
+      return "text-cyan-950";
+    case "BOSS_ABILITY":
+      return "text-fuchsia-950";
     case "CROWD_CONTROL":
       return "text-violet-950";
     case "CROWD_CONTROL_BREAK":
@@ -286,16 +312,7 @@ export function CombatLogDebug() {
       return new Map<string, EncounterTimelineMarkerBucket>();
     }
 
-    const importantEventTypes = new Set([
-      "PARTY_KILL",
-      "UNIT_DIED",
-      "SPELL_INTERRUPT",
-      "SPELL_DISPEL",
-      "BLOODLUST",
-      "COMBAT_RES",
-      "CROWD_CONTROL",
-      "CROWD_CONTROL_BREAK",
-    ]);
+    const importantEventTypes = new Set<string>(ENCOUNTER_TIMELINE_LEGEND_TYPES);
     const markers = parseResult.parsedEvents
       .filter((event) => importantEventTypes.has(event.eventType))
       .map<EncounterTimelineMarker>((event) => ({
@@ -461,16 +478,7 @@ export function CombatLogDebug() {
                   Encounter Timeline
                 </h2>
                 <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-neutral-400">
-                  {[
-                    "PARTY_KILL",
-                    "UNIT_DIED",
-                    "SPELL_INTERRUPT",
-                    "BLOODLUST",
-                    "COMBAT_RES",
-                    "CROWD_CONTROL",
-                    "CROWD_CONTROL_BREAK",
-                    "SPELL_DISPEL",
-                  ].map((eventType) => {
+                  {ENCOUNTER_TIMELINE_LEGEND_TYPES.map((eventType) => {
                     const MarkerIcon = getEventMarkerIcon(eventType);
                     return (
                       <span
@@ -630,7 +638,10 @@ export function CombatLogDebug() {
                         <tr key={`${event.lineNumber}-${event.eventType}`} className="border-t border-white/8">
                           <td className="px-3 py-2 text-neutral-400">{event.lineNumber}</td>
                           <td className="px-3 py-2 text-neutral-300">{event.logTimestamp}</td>
-                          <td className="px-3 py-2 text-amber-200">{event.eventType}</td>
+                          <td className="px-3 py-2 text-amber-200">
+                            {event.eventType}
+                            {event.abilityName ? ` · ${event.abilityName}` : ""}
+                          </td>
                           <td className="px-3 py-2 text-neutral-300">{event.source || "-"}</td>
                           <td className="px-3 py-2 text-neutral-300">
                             {event.target ? (

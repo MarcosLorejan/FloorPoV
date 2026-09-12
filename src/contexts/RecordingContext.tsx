@@ -32,7 +32,9 @@ interface RecordingContextType {
   recordingDuration: number;
   appStatusDetail: string | null;
   isSelectedWindowAlive: boolean;
+  playbackMetadataEpoch: number;
   loadPlaybackMetadata: (filePath: string) => Promise<void>;
+  bumpPlaybackMetadataEpoch: () => void;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
 }
@@ -59,9 +61,10 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   const [combatWatchDetail, setCombatWatchDetail] = useState<string | null>(null);
   const [autoRecordingConfigDetail, setAutoRecordingConfigDetail] = useState<string | null>(null);
   const [isSelectedWindowAlive, setIsSelectedWindowAlive] = useState(true);
+  const [playbackMetadataEpoch, setPlaybackMetadataEpoch] = useState(0);
   const appStatusDetail = windowGoneDetail ?? combatWatchDetail ?? autoRecordingConfigDetail;
   const { settings, updateSettings } = useSettings();
-  const { addEvent, setEvents, clearEvents } = useMarker();
+  const { addEvent, setEvents, setEncounters, setPlayers, clearEvents } = useMarker();
   const operationInFlightRef = useRef(false);
   const isRecordingRef = useRef(false);
   const recordingOriginRef = useRef<RecordingOrigin | null>(null);
@@ -349,7 +352,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     };
   }, [addEvent, clearPendingAutoStop, settings.enableAutoRecording]);
 
-  const loadPlaybackMetadata = async (filePath: string) => {
+  const loadPlaybackMetadata = useCallback(async (filePath: string) => {
     if (isRecording) {
       return;
     }
@@ -357,6 +360,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     const normalizedPath = filePath.trim();
     if (!normalizedPath) {
       setEvents([]);
+      setEncounters([]);
+      setPlayers([]);
       return;
     }
 
@@ -366,11 +371,19 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       });
 
       setEvents(convertRecordingMetadataToGameEvents(metadata));
+      setEncounters(metadata?.encounters ?? []);
+      setPlayers(metadata?.players ?? []);
     } catch (error) {
       console.warn("Failed to load recording metadata. Falling back to no markers.", error);
       setEvents([]);
+      setEncounters([]);
+      setPlayers([]);
     }
-  };
+  }, [isRecording, setEncounters, setEvents, setPlayers]);
+
+  const bumpPlaybackMetadataEpoch = useCallback(() => {
+    setPlaybackMetadataEpoch((currentEpoch) => currentEpoch + 1);
+  }, []);
 
   const startRecordingInternal = useCallback(
     async (origin: RecordingOrigin, autoTriggerMode: AutoTriggerMode | null = null) => {
@@ -697,7 +710,9 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
         recordingDuration,
         appStatusDetail,
         isSelectedWindowAlive,
+        playbackMetadataEpoch,
         loadPlaybackMetadata,
+        bumpPlaybackMetadataEpoch,
         startRecording,
         stopRecording,
       }}

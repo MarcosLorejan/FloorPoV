@@ -1,5 +1,26 @@
 use super::{CombatTriggerEvent, ParsedCombatEvent, EVENT_ENCOUNTER_END, EVENT_ENCOUNTER_START};
 
+pub(crate) const PLAYER_AMOUNT_MARKER_MIN: u64 = 1_000_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CombatAmountKind {
+    Damage,
+    Heal,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CombatAmountSample {
+    pub(crate) dest_guid: String,
+    pub(crate) source: Option<String>,
+    pub(crate) target: Option<String>,
+    pub(crate) target_kind: Option<String>,
+    pub(crate) amount: u64,
+    pub(crate) kind: CombatAmountKind,
+    pub(crate) persist_as_marker: bool,
+    pub(crate) log_timestamp: Option<String>,
+    pub(crate) raw_event_type: String,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ImportantCombatEvent {
     pub(crate) raw_event_type: String,
@@ -11,6 +32,8 @@ pub(crate) struct ImportantCombatEvent {
     /// Spell the event acted upon, such as the dispelled aura or the
     /// interrupted cast. Empty for events without an `extraSpellName` column.
     pub(crate) extra_spell_name: Option<String>,
+    pub(crate) dest_guid: Option<String>,
+    pub(crate) amount: Option<u64>,
     pub(crate) ability_name: Option<String>,
     pub(crate) zone_name: Option<String>,
     pub(crate) encounter_name: Option<String>,
@@ -43,12 +66,20 @@ impl ImportantCombatEvent {
             | "UNIT_DIED"
             | "BLOODLUST"
             | "COMBAT_RES"
+            | "DEFENSIVE"
+            | "BIG_HIT"
+            | "HEAL"
+            | "BOSS_ABILITY"
             | "CROWD_CONTROL"
-            | "CROWD_CONTROL_BREAK" => Some(super::CombatEvent {
+            | "CROWD_CONTROL_BREAK"
+            | "SPELL_DISPEL"
+            | "SPELL_INTERRUPT" => Some(super::CombatEvent {
                 timestamp,
                 event_type: self.event_type,
                 source: self.source,
                 target: self.target,
+                extra_spell_name: self.extra_spell_name,
+                amount: self.amount,
                 ability_name: self.ability_name,
             }),
             _ => None,
@@ -90,9 +121,12 @@ pub(crate) fn parse_important_combat_event(
     line: &str,
     context: &mut DebugParseContext,
 ) -> Option<ImportantCombatEvent> {
-    let parsed_line = parse_log_line_fields(line)?;
+    let parsed_line = parse_log_line_fields(line, context.current_encounter.as_deref())?;
+    // Vote-to-abandon / hearth never writes CHALLENGE_MODE_END. An outdoor
+    // ZONE_CHANGE is the combat-log signal that the key is over.
+    let raw_event_type = remap_instance_leave_to_challenge_end(context, &parsed_line);
 
-    update_debug_context(context, &parsed_line);
+    update_debug_context(context, &raw_event_type, &parsed_line);
 
     if let Some(zone_name) = extract_zone_name(&parsed_line.raw_event_type, &parsed_line.fields) {
         // MAP_CHANGE/ZONE_CHANGED fire for dungeon floors (Augurs' Terrace inside Murder
@@ -114,13 +148,15 @@ pub(crate) fn parse_important_combat_event(
     }
 
     Some(ImportantCombatEvent {
-        raw_event_type: parsed_line.raw_event_type,
+        raw_event_type,
         log_timestamp: Some(parsed_line.log_timestamp),
         event_type: parsed_line.normalized_event_type,
         source: parsed_line.source,
         target: parsed_line.target,
         target_kind: parsed_line.target_kind,
         extra_spell_name: parsed_line.extra_spell_name,
+        dest_guid: parsed_line.dest_guid,
+        amount: None,
         ability_name: parsed_line.ability_name,
         zone_name: context.current_zone.clone(),
         encounter_name,
@@ -214,11 +250,12 @@ struct ParsedLogLine {
     target: Option<String>,
     target_kind: Option<String>,
     extra_spell_name: Option<String>,
+    dest_guid: Option<String>,
     ability_name: Option<String>,
     fields: Vec<String>,
 }
 
-fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
+fn parse_log_line_fields(line: &str, encounter_name: Option<&str>) -> Option<ParsedLogLine> {
     let trimmed_line = line.trim();
     if trimmed_line.is_empty() {
         return None;
@@ -230,7 +267,8 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
     let remaining_fields = fields
         .map(|value| value.trim().to_string())
         .collect::<Vec<String>>();
-    let normalized_event_type = normalize_important_event_type(raw_event_type, &remaining_fields)?;
+    let normalized_event_type =
+        normalize_important_event_type(raw_event_type, &remaining_fields, encounter_name)?;
 
     let source_name = remaining_fields.get(1).map(|value| value.as_str());
     let source_guid = remaining_fields.first().map(|value| value.as_str());
@@ -240,7 +278,10 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
     let dest_flags = remaining_fields.get(6).map(|value| value.as_str());
     let source_kind = classify_unit_type(source_flags, source_guid).map(str::to_string);
     let target_kind = classify_unit_type(dest_flags, dest_guid).map(str::to_string);
-    let ability_name = if is_crowd_control_event_type(normalized_event_type) {
+    let ability_name = if normalized_event_type == "DEFENSIVE"
+        || normalized_event_type == "BOSS_ABILITY"
+        || is_crowd_control_event_type(normalized_event_type)
+    {
         extract_spell_name(&remaining_fields)
     } else {
         None
@@ -254,6 +295,7 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
         target: normalize_entity_name(dest_name, target_kind.as_deref()),
         target_kind,
         extra_spell_name: extract_extra_spell_name(raw_event_type, &remaining_fields),
+        dest_guid: normalize_name(dest_guid),
         ability_name,
         fields: remaining_fields,
     })
@@ -275,14 +317,128 @@ fn extract_extra_spell_name(raw_event_type: &str, fields: &[String]) -> Option<S
     )
 }
 
-fn normalize_important_event_type(event_type: &str, fields: &[String]) -> Option<&'static str> {
+pub(crate) fn parse_combat_amount_sample(line: &str) -> Option<CombatAmountSample> {
+    let trimmed_line = line.trim();
+    if trimmed_line.is_empty() {
+        return None;
+    }
+
+    let mut fields = trimmed_line.split(',');
+    let header = fields.next()?.trim();
+    let raw_event_type = extract_event_type(header)?;
+    let remaining_fields = fields.map(|value| value.trim()).collect::<Vec<&str>>();
+
+    let (kind, amount_index, overkill_index) = amount_field_layout(raw_event_type)?;
+    let amount = parse_combat_amount_field(remaining_fields.get(amount_index).copied())?;
+    if amount == 0 {
+        return None;
+    }
+
+    let dest_guid = normalize_name(remaining_fields.get(4).copied())?;
+    let dest_name = remaining_fields.get(5).copied();
+    let dest_flags = remaining_fields.get(6).copied();
+    let target_kind = classify_unit_type(dest_flags, Some(dest_guid.as_str())).map(str::to_string);
+    if is_guardian_target(target_kind.as_deref()) {
+        return None;
+    }
+
+    let source_guid = remaining_fields.first().copied();
+    let source_name = remaining_fields.get(1).copied();
+    let source_flags = remaining_fields.get(2).copied();
+    let source_kind = classify_unit_type(source_flags, source_guid);
+
+    // Combat log overkill is -1 when the target survives. 0 is an exact killing blow.
+    let overkill = overkill_index
+        .map(|index| parse_combat_overkill_field(remaining_fields.get(index).copied()))
+        .unwrap_or(-1);
+    let is_killing_blow = kind == CombatAmountKind::Damage && overkill >= 0;
+    let persist_as_marker = target_kind.as_deref() == Some("PLAYER")
+        && amount >= PLAYER_AMOUNT_MARKER_MIN
+        && is_amount_marker_event(raw_event_type)
+        && !is_killing_blow;
+
+    Some(CombatAmountSample {
+        dest_guid,
+        source: normalize_entity_name(source_name, source_kind),
+        target: normalize_entity_name(dest_name, target_kind.as_deref()),
+        target_kind,
+        amount,
+        kind,
+        persist_as_marker,
+        log_timestamp: Some(extract_log_timestamp(header)),
+        raw_event_type: raw_event_type.to_string(),
+    })
+}
+
+fn amount_field_layout(raw_event_type: &str) -> Option<(CombatAmountKind, usize, Option<usize>)> {
+    match raw_event_type {
+        "SPELL_DAMAGE"
+        | "SPELL_PERIODIC_DAMAGE"
+        | "RANGE_DAMAGE"
+        | "DAMAGE_SHIELD"
+        | "DAMAGE_SPLIT" => Some((CombatAmountKind::Damage, 11, Some(12))),
+        "SWING_DAMAGE" | "SWING_DAMAGE_LANDED" => Some((CombatAmountKind::Damage, 8, Some(9))),
+        "ENVIRONMENTAL_DAMAGE" => Some((CombatAmountKind::Damage, 9, Some(10))),
+        "SPELL_HEAL" | "SPELL_PERIODIC_HEAL" => Some((CombatAmountKind::Heal, 11, None)),
+        _ => None,
+    }
+}
+
+fn is_amount_marker_event(raw_event_type: &str) -> bool {
+    matches!(
+        raw_event_type,
+        "SPELL_DAMAGE" | "RANGE_DAMAGE" | "SWING_DAMAGE" | "SPELL_HEAL"
+    )
+}
+
+fn parse_combat_amount_field(value: Option<&str>) -> Option<u64> {
+    let raw = value?.trim().trim_matches('"');
+    if raw.is_empty() || raw == "nil" {
+        return None;
+    }
+
+    if let Ok(amount) = raw.parse::<u64>() {
+        return Some(amount);
+    }
+
+    raw.parse::<f64>()
+        .ok()
+        .filter(|amount| amount.is_finite() && *amount >= 0.0)
+        .map(|amount| amount as u64)
+}
+
+fn parse_combat_overkill_field(value: Option<&str>) -> i64 {
+    let Some(raw) = value else {
+        return -1;
+    };
+    let raw = raw.trim().trim_matches('"');
+    if raw.is_empty() || raw == "nil" {
+        return -1;
+    }
+
+    if let Ok(overkill) = raw.parse::<i64>() {
+        return overkill;
+    }
+
+    raw.parse::<f64>()
+        .ok()
+        .filter(|amount| amount.is_finite())
+        .map(|amount| amount as i64)
+        .unwrap_or(-1)
+}
+
+fn normalize_important_event_type(
+    event_type: &str,
+    fields: &[String],
+    encounter_name: Option<&str>,
+) -> Option<&'static str> {
     match event_type {
         "PARTY_KILL" => Some("PARTY_KILL"),
         "UNIT_DIED" | "UNIT_DESTROYED" => Some("UNIT_DIED"),
         "SPELL_INTERRUPT" => Some("SPELL_INTERRUPT"),
         "SPELL_DISPEL" => Some("SPELL_DISPEL"),
         "SPELL_RESURRECT" => Some("COMBAT_RES"),
-        "SPELL_CAST_SUCCESS" => classify_cast_success_event(fields),
+        "SPELL_CAST_SUCCESS" => classify_cast_success_event(fields, encounter_name),
         "SPELL_AURA_APPLIED" | "SPELL_AURA_BROKEN" | "SPELL_AURA_BROKEN_SPELL" => {
             classify_crowd_control_event(event_type, fields)
         }
@@ -296,11 +452,22 @@ fn normalize_important_event_type(event_type: &str, fields: &[String]) -> Option
     }
 }
 
-fn classify_cast_success_event(fields: &[String]) -> Option<&'static str> {
-    let spell_id = extract_spell_id(fields)?;
+fn classify_cast_success_event(
+    fields: &[String],
+    encounter_name: Option<&str>,
+) -> Option<&'static str> {
+    if let Some(spell_id) = extract_spell_id(fields) {
+        if is_bloodlust_spell_id(spell_id) {
+            return Some("BLOODLUST");
+        }
 
-    if is_bloodlust_spell_id(spell_id) {
-        return Some("BLOODLUST");
+        if is_player_source(fields) && is_defensive_spell_id(spell_id) {
+            return Some("DEFENSIVE");
+        }
+    }
+
+    if is_boss_ability_cast(fields, encounter_name) {
+        return Some("BOSS_ABILITY");
     }
 
     None
@@ -312,6 +479,161 @@ fn extract_spell_id(fields: &[String]) -> Option<u32> {
 
 fn extract_spell_name(fields: &[String]) -> Option<String> {
     normalize_name(fields.get(9).map(|value| value.as_str()))
+}
+
+fn is_player_source(fields: &[String]) -> bool {
+    let source_guid = fields.first().map(|value| value.as_str());
+    let source_flags = fields.get(2).map(|value| value.as_str());
+    classify_unit_type(source_flags, source_guid) == Some("PLAYER")
+}
+
+fn is_boss_ability_cast(fields: &[String], encounter_name: Option<&str>) -> bool {
+    let Some(encounter_name) = encounter_name.filter(|name| !name.is_empty()) else {
+        return false;
+    };
+
+    let source_guid = fields.first().map(|value| value.as_str());
+    let source_name_raw = fields.get(1).map(|value| value.as_str());
+    let source_flags = fields.get(2).map(|value| value.as_str());
+    if classify_unit_type(source_flags, source_guid) != Some("NPC") {
+        return false;
+    }
+
+    let Some(source_name) = normalize_name(source_name_raw) else {
+        return false;
+    };
+    let Some(spell_name) = extract_spell_name(fields) else {
+        return false;
+    };
+    if is_ignored_ability_name(&spell_name) {
+        return false;
+    }
+
+    is_encounter_relevant_boss(&source_name, encounter_name, source_guid)
+}
+
+fn is_ignored_ability_name(spell_name: &str) -> bool {
+    matches!(
+        spell_name.to_ascii_lowercase().as_str(),
+        "melee" | "auto attack" | "attack" | "weapon" | "shoot"
+    )
+}
+
+fn is_encounter_relevant_boss(
+    source_name: &str,
+    encounter_name: &str,
+    source_guid: Option<&str>,
+) -> bool {
+    if is_trash_like_unit_name(source_name) {
+        return false;
+    }
+
+    if names_are_encounter_related(source_name, encounter_name) {
+        return true;
+    }
+
+    if source_guid.is_some_and(|guid| guid.starts_with("Vehicle-")) {
+        return true;
+    }
+
+    is_multi_boss_encounter(encounter_name)
+}
+
+fn is_multi_boss_encounter(encounter_name: &str) -> bool {
+    // Match official council-style encounter titles only. Do not treat every
+    // "X and Y" name as "all NPCs are bosses" — named bosses already match via
+    // names_are_encounter_related after "and"/"&" split into words.
+    let lower = encounter_name.to_ascii_lowercase();
+    lower.contains("twins")
+        || name_ends_with_word(&lower, "council")
+        || name_ends_with_word(&lower, "court")
+        || name_ends_with_word(&lower, "assembly")
+        || name_ends_with_word(&lower, "trio")
+}
+
+fn name_ends_with_word(name: &str, word: &str) -> bool {
+    name == word
+        || name
+            .strip_suffix(word)
+            .is_some_and(|prefix| prefix.ends_with([' ', '-', '\'']))
+}
+
+fn is_trash_like_unit_name(source_name: &str) -> bool {
+    const TRASH_TOKENS: &[&str] = &[
+        "spawn",
+        "remnant",
+        "fragment",
+        "echo",
+        "image",
+        "illusion",
+        "totem",
+        "trap",
+        "mine",
+        "orb",
+        "stalker",
+        "bunny",
+        "controller",
+        "trigger",
+        "missile",
+        "swarmer",
+        "hatchling",
+        "egg",
+        "larva",
+        "maggot",
+        "minion",
+        "familiar",
+        "dummy",
+        "spark",
+        "shard",
+        "globule",
+        "droplet",
+        "voidling",
+        "oozeling",
+        "wisp",
+        "add",
+    ];
+
+    compare_name_words(source_name)
+        .iter()
+        .any(|token| TRASH_TOKENS.contains(&token.as_str()))
+}
+
+fn names_are_encounter_related(source_name: &str, encounter_name: &str) -> bool {
+    let source_words = compare_name_words(source_name);
+    let encounter_words = compare_name_words(encounter_name);
+    if source_words.is_empty() || encounter_words.is_empty() {
+        return false;
+    }
+
+    source_words == encounter_words
+        || contains_contiguous_words(&encounter_words, &source_words)
+        || contains_contiguous_words(&source_words, &encounter_words)
+}
+
+fn compare_name_words(name: &str) -> Vec<String> {
+    name.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .filter(|word| word.len() >= 2)
+        .map(str::to_string)
+        .collect()
+}
+
+fn contains_contiguous_words(haystack: &[String], needle: &[String]) -> bool {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return false;
+    }
+
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 fn is_crowd_control_event_type(event_type: &str) -> bool {
@@ -487,6 +809,108 @@ fn is_bloodlust_spell_id(spell_id: u32) -> bool {
     )
 }
 
+/// Major personal and external defensives that are worth seeking to on a VOD.
+///
+/// The set is deliberately narrow. Short-cooldown absorbs and passive mitigation
+/// (Ice Barrier, Power Word: Shield, Shield Block) are excluded because they fire
+/// often enough to bury the review-worthy casts.
+fn is_defensive_spell_id(spell_id: u32) -> bool {
+    matches!(
+        spell_id,
+        // Death Knight
+        48707 |    // Anti-Magic Shell
+        48792 |    // Icebound Fortitude
+        51052 |    // Anti-Magic Zone
+        55233 |    // Vampiric Blood
+        49028 |    // Dancing Rune Weapon
+        49039 |    // Lichborne
+        287081 |   // Lichborne (talent id)
+        48743 |    // Death Pact
+        // Demon Hunter
+        198589 |   // Blur
+        196718 |   // Darkness
+        196555 |   // Netherwalk
+        204021 |   // Fiery Brand
+        // Druid
+        22812 |    // Barkskin
+        61336 |    // Survival Instincts
+        102342 |   // Ironbark
+        200851 |   // Rage of the Sleeper
+        // Hunter
+        186265 |   // Aspect of the Turtle
+        264735 |   // Survival of the Fittest
+        281195 |   // Survival of the Fittest (spec)
+        272679 |   // Fortitude of the Bear
+        53480 |    // Roar of Sacrifice
+        // Mage
+        45438 |    // Ice Block
+        414658 |   // Ice Cold
+        110959 |   // Greater Invisibility
+        108978 |   // Alter Time
+        342245 |   // Alter Time (Arcane)
+        55342 |    // Mirror Image
+        414660 |   // Mass Barrier
+        // Monk
+        115203 |   // Fortifying Brew
+        243435 |   // Fortifying Brew (Mistweaver/Windwalker)
+        122470 |   // Touch of Karma
+        122783 |   // Diffuse Magic
+        122278 |   // Dampen Harm
+        116849 |   // Life Cocoon
+        115176 |   // Zen Meditation
+        // Paladin
+        642 |      // Divine Shield
+        498 |      // Divine Protection
+        403876 |   // Divine Protection (Retribution)
+        1022 |     // Blessing of Protection
+        6940 |     // Blessing of Sacrifice
+        204018 |   // Blessing of Spellwarding
+        31821 |    // Aura Mastery
+        31850 |    // Ardent Defender
+        86659 |    // Guardian of Ancient Kings
+        389539 |   // Sentinel
+        387174 |   // Eye of Tyr
+        184662 |   // Shield of Vengeance
+        // Priest
+        19236 |    // Desperate Prayer
+        47585 |    // Dispersion
+        33206 |    // Pain Suppression
+        47788 |    // Guardian Spirit
+        62618 |    // Power Word: Barrier
+        271466 |   // Luminous Barrier
+        108968 |   // Void Shift
+        // Rogue
+        31224 |    // Cloak of Shadows
+        5277 |     // Evasion
+        // Shaman
+        108271 |   // Astral Shift
+        98008 |    // Spirit Link Totem
+        198103 |   // Earth Elemental
+        108281 |   // Ancestral Guidance
+        207399 |   // Ancestral Protection Totem
+        198838 |   // Earthen Wall Totem
+        108270 |   // Stone Bulwark Totem
+        // Warlock
+        104773 |   // Unending Resolve
+        108416 |   // Dark Pact
+        // Warrior
+        871 |      // Shield Wall
+        118038 |   // Die by the Sword
+        184364 |   // Enraged Regeneration
+        97462 |    // Rallying Cry
+        23920 |    // Spell Reflection
+        12975 |    // Last Stand
+        383762 |   // Bitter Immunity
+        // Evoker
+        363916 |   // Obsidian Scales
+        374348 |   // Renewing Blaze
+        374227 |   // Zephyr
+        363534 |   // Rewind
+        357170 |   // Time Dilation
+        370665 // Rescue
+    )
+}
+
 fn should_ignore_unconscious_death(parsed_line: &ParsedLogLine) -> bool {
     if parsed_line.normalized_event_type != "UNIT_DIED" {
         return false;
@@ -526,8 +950,42 @@ fn parse_unconscious_flag(value: &str) -> Option<bool> {
     }
 }
 
-fn update_debug_context(context: &mut DebugParseContext, parsed_line: &ParsedLogLine) {
-    match parsed_line.raw_event_type.as_str() {
+fn remap_instance_leave_to_challenge_end(
+    context: &DebugParseContext,
+    parsed_line: &ParsedLogLine,
+) -> String {
+    if context.in_challenge_mode
+        && outdoor_zone_change_left_instance(&parsed_line.raw_event_type, &parsed_line.fields)
+    {
+        return "CHALLENGE_MODE_END".to_string();
+    }
+
+    parsed_line.raw_event_type.clone()
+}
+
+fn outdoor_zone_change_left_instance(raw_event_type: &str, fields: &[String]) -> bool {
+    if !matches!(
+        raw_event_type,
+        "ZONE_CHANGE" | "ZONE_CHANGED" | "ZONE_CHANGE_NEW_AREA"
+    ) {
+        return false;
+    }
+
+    matches!(
+        fields
+            .get(2)
+            .map(|value| value.trim().trim_matches('"'))
+            .and_then(|value| value.parse::<i64>().ok()),
+        Some(0)
+    )
+}
+
+fn update_debug_context(
+    context: &mut DebugParseContext,
+    raw_event_type: &str,
+    parsed_line: &ParsedLogLine,
+) {
+    match raw_event_type {
         "CHALLENGE_MODE_START" => {
             context.in_challenge_mode = true;
             context.current_key_level = extract_challenge_mode_key_level(&parsed_line.fields);

@@ -9,7 +9,7 @@
 - [ ] Interrupts/debuffs tracking
 - [ ] Crowd control events (stuns, roots, silences)
 - [ ] Defensive cooldown usage
-- [ ] Damage/healing breakdown per event
+- [x] Damage/healing breakdown per event
 - [ ] Event filtering by type
 
 ### Video Player Video controls panel (
@@ -22,7 +22,7 @@
 
 ### Combat Log Parsing
 
-- [ ] Real combat log file import (.txt)
+- [x] Real combat log file import (.txt)
 - [ ] Combat log parsing from live recording
 - [ ] Support for different game modes:
   - Mythic+ (dungeon tracking, keystone level)
@@ -35,7 +35,7 @@
 - [ ] Export analysis report
 - [ ] Custom event markers
 - [ ] Keyboard shortcuts
-- [ ] Dark/light theme toggle
+- [x] Dark/light theme toggle
 
 ### Data Management
 

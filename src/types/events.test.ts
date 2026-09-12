@@ -3,6 +3,7 @@ import {
   convertCombatEvent,
   convertRecordingMetadataToGameEvents,
   isVideoSeekBarEvent,
+  recordingMetadataHasCombatContent,
   shouldShowGameEvent,
   type GameEvent,
   type GameEventType,
@@ -20,6 +21,14 @@ const ALL_EVENT_TYPES_VISIBLE: Record<GameEventType, boolean> = {
   crowdControlBreak: true,
 };
 
+function metadata(overrides: Partial<RecordingMetadata> = {}): RecordingMetadata {
+  return {
+    schemaVersion: 2,
+    recordingFile: "screen_recording_20260911_175201.mp4",
+    ...overrides,
+  };
+}
+
 function metadataWithEvents(
   importantEvents: NonNullable<RecordingMetadata["importantEvents"]>,
 ): RecordingMetadata {
@@ -29,6 +38,32 @@ function metadataWithEvents(
     importantEvents,
   };
 }
+
+describe("recordingMetadataHasCombatContent", () => {
+  test("returns false for missing metadata", () => {
+    expect(recordingMetadataHasCombatContent(null)).toBe(false);
+  });
+
+  test("returns false for an empty sidecar", () => {
+    expect(recordingMetadataHasCombatContent(metadata())).toBe(false);
+  });
+
+  test("returns true when combat fields are present", () => {
+    expect(recordingMetadataHasCombatContent(metadata({ zoneName: "Voidscar Arena" }))).toBe(true);
+    expect(
+      recordingMetadataHasCombatContent(
+        metadata({
+          importantEvents: [
+            {
+              timestampSeconds: 12,
+              eventType: "UNIT_DIED",
+            },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+});
 
 describe("convertRecordingMetadataToGameEvents", () => {
   test("maps crowd control apply and break with ability names", () => {

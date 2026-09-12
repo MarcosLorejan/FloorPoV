@@ -27,6 +27,7 @@ import { EventMarker } from "../events/EventMarker";
 import { EventTooltip } from "../events/EventTooltip";
 import { PlaybackEventList } from "../events/PlaybackEventList";
 import { ControlIconButton } from "./ControlIconButton";
+import { ImportCombatLogControl } from "./ImportCombatLogControl";
 import { EVENT_SEEK_OFFSET_SECONDS, isVideoSeekBarEvent, type GameEvent } from "../../types/events";
 import { getErrorMessage } from "../../services/tauri";
 import { formatTime } from "../../utils/format";
@@ -1023,6 +1024,7 @@ export function VideoPlayer() {
             </div>
 
             <div className="flex items-center gap-2 md:shrink-0">
+              <ImportCombatLogControl />
               <div ref={speedMenuRef} className="relative">
                 <button
                   type="button"

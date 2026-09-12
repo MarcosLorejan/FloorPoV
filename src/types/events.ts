@@ -97,6 +97,33 @@ export interface ParseCombatLogDebugResult {
 
 export const EVENT_SEEK_OFFSET_SECONDS = 5;
 export const MANUAL_MARKER_NAME_MAX_LENGTH = 64;
+export const MANUAL_MARKER_TIMESTAMP_EPSILON_SECONDS = 0.05;
+
+/** 0-based index among manual markers in the same timestamp window, matching sidecar order. */
+export function manualMarkerOccurrenceIndex(
+  events: GameEvent[],
+  targetEvent: GameEvent,
+): number {
+  let occurrence = 0;
+
+  for (const event of events) {
+    if (event.type !== "manual") {
+      continue;
+    }
+
+    if (Math.abs(event.timestamp - targetEvent.timestamp) > MANUAL_MARKER_TIMESTAMP_EPSILON_SECONDS) {
+      continue;
+    }
+
+    if (event.id === targetEvent.id) {
+      return occurrence;
+    }
+
+    occurrence += 1;
+  }
+
+  return 0;
+}
 
 export function normalizeManualMarkerName(value: string | undefined | null): string | undefined {
   if (!value) {

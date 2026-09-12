@@ -55,7 +55,11 @@ fn names_recorded_manual_markers() {
     accumulator.record_manual_marker(12.0);
 
     let first_timestamp = accumulator.snapshot().important_events[0].timestamp_seconds;
-    assert!(accumulator.set_manual_marker_name(first_timestamp, Some("  hold kick  ".to_string())));
+    assert!(accumulator.set_manual_marker_name(
+        first_timestamp,
+        0,
+        Some("  hold kick  ".to_string())
+    ));
 
     let snapshot = accumulator.snapshot();
     let manual_markers = snapshot

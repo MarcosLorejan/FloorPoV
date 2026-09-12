@@ -228,16 +228,15 @@ pub(crate) fn normalize_manual_marker_name(name: Option<String>) -> Option<Strin
     )
 }
 
-/// Sets or clears the name of the manual marker at `timestamp_seconds` and reports whether a
-/// marker matched.
+/// Sets or clears the name of the manual marker the caller selected.
 ///
-/// Timestamps come straight from the metadata the caller already holds, so an exact match is
-/// the norm and the epsilon only absorbs float drift. Markers can still share that window, so
-/// setting a name prefers an unnamed marker and clearing prefers a named one. That keeps naming
-/// a freshly placed marker from overwriting a name the user already wrote.
+/// `occurrence` is the 0-based index among `MANUAL_MARKER` events inside the timestamp
+/// epsilon, in sidecar order. The UI sends that same index for the clicked event, so two
+/// markers dropped on the same frame rename independently.
 pub(crate) fn apply_manual_marker_name(
     events: &mut [RecordingImportantEventMetadata],
     timestamp_seconds: f64,
+    occurrence: usize,
     name: Option<String>,
 ) -> bool {
     let normalized_name = normalize_manual_marker_name(name);
@@ -252,14 +251,7 @@ pub(crate) fn apply_manual_marker_name(
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
 
-    let prefers_named_marker = normalized_name.is_none();
-    let selected_index = matching_indexes
-        .iter()
-        .copied()
-        .find(|&index| events[index].name.is_some() == prefers_named_marker)
-        .or_else(|| matching_indexes.last().copied());
-
-    let Some(index) = selected_index else {
+    let Some(&index) = matching_indexes.get(occurrence) else {
         return false;
     };
 
@@ -270,13 +262,19 @@ pub(crate) fn apply_manual_marker_name(
 pub(crate) fn update_manual_marker_name_in_sidecar(
     recording_path: &Path,
     timestamp_seconds: f64,
+    occurrence: usize,
     name: Option<String>,
 ) -> Result<(), String> {
     let Some(mut metadata) = read_recording_metadata(recording_path)? else {
         return Err("Recording metadata sidecar not found".to_string());
     };
 
-    if !apply_manual_marker_name(&mut metadata.important_events, timestamp_seconds, name) {
+    if !apply_manual_marker_name(
+        &mut metadata.important_events,
+        timestamp_seconds,
+        occurrence,
+        name,
+    ) {
         return Err("Manual marker not found".to_string());
     }
 
@@ -868,6 +866,7 @@ mod tests {
         assert!(apply_manual_marker_name(
             &mut events,
             12.0,
+            0,
             Some("hold kick".to_string())
         ));
         assert_eq!(events[0].name.as_deref(), Some("hold kick"));
@@ -875,7 +874,7 @@ mod tests {
     }
 
     #[test]
-    fn prefers_unnamed_marker_when_timestamps_match() {
+    fn names_the_selected_same_timestamp_marker() {
         let mut events = vec![
             manual_marker_event(8.0, Some("already named")),
             manual_marker_event(8.0, None),
@@ -884,6 +883,7 @@ mod tests {
         assert!(apply_manual_marker_name(
             &mut events,
             8.0,
+            1,
             Some("bad soak".to_string())
         ));
         assert_eq!(events[0].name.as_deref(), Some("already named"));
@@ -891,14 +891,14 @@ mod tests {
     }
 
     #[test]
-    fn prefers_named_marker_when_clearing_a_name() {
+    fn clears_only_the_selected_same_timestamp_marker() {
         let mut events = vec![
-            manual_marker_event(8.0, None),
+            manual_marker_event(8.0, Some("keep")),
             manual_marker_event(8.0, Some("bad soak")),
         ];
 
-        assert!(apply_manual_marker_name(&mut events, 8.0, None));
-        assert_eq!(events[0].name, None);
+        assert!(apply_manual_marker_name(&mut events, 8.0, 1, None));
+        assert_eq!(events[0].name.as_deref(), Some("keep"));
         assert_eq!(events[1].name, None);
     }
 
@@ -909,6 +909,7 @@ mod tests {
         assert!(!apply_manual_marker_name(
             &mut events,
             30.0,
+            0,
             Some("bad soak".to_string())
         ));
         assert_eq!(events[0].name, None);
@@ -962,6 +963,7 @@ mod tests {
         update_manual_marker_name_in_sidecar(
             &recording_path,
             15.5,
+            0,
             Some("  bad soak  ".to_string()),
         )
         .expect("Expected marker name update to succeed");
@@ -974,7 +976,7 @@ mod tests {
             Some("bad soak")
         );
 
-        update_manual_marker_name_in_sidecar(&recording_path, 15.5, None)
+        update_manual_marker_name_in_sidecar(&recording_path, 15.5, 0, None)
             .expect("Expected marker name clear to succeed");
 
         let cleared_sidecar = std::fs::read_to_string(metadata_sidecar_path(&recording_path))

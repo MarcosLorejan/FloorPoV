@@ -309,11 +309,13 @@ impl RecordingMetadataAccumulator {
     pub(crate) fn set_manual_marker_name(
         &mut self,
         timestamp_seconds: f64,
+        occurrence: usize,
         name: Option<String>,
     ) -> bool {
         crate::recording::metadata::apply_manual_marker_name(
             &mut self.important_events,
             timestamp_seconds,
+            occurrence,
             name,
         )
     }

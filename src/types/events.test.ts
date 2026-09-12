@@ -4,8 +4,10 @@ import {
   convertRecordingMetadataToGameEvents,
   getManualMarkerLabel,
   MANUAL_MARKER_NAME_MAX_LENGTH,
+  manualMarkerOccurrenceIndex,
   normalizeManualMarkerName,
   shouldPromptManualMarkerName,
+  type GameEvent,
   type RecordingMetadata,
 } from "./events";
 
@@ -138,5 +140,18 @@ describe("shouldPromptManualMarkerName", () => {
     withDocument(null, () => {
       expect(shouldPromptManualMarkerName()).toBe(false);
     });
+  });
+});
+
+describe("manualMarkerOccurrenceIndex", () => {
+  const first: GameEvent = { id: "manual-8-0", timestamp: 8, type: "manual", name: "keep" };
+  const second: GameEvent = { id: "manual-8-1", timestamp: 8, type: "manual", name: "rename me" };
+  const later: GameEvent = { id: "manual-20-2", timestamp: 20, type: "manual" };
+
+  test("counts only manuals inside the same timestamp window", () => {
+    const events = [first, second, later];
+    expect(manualMarkerOccurrenceIndex(events, first)).toBe(0);
+    expect(manualMarkerOccurrenceIndex(events, second)).toBe(1);
+    expect(manualMarkerOccurrenceIndex(events, later)).toBe(0);
   });
 });

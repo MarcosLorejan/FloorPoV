@@ -327,11 +327,13 @@ pub async fn emit_manual_marker(app_handle: AppHandle) -> Result<(), String> {
 pub fn update_manual_marker_name(
     file_path: Option<String>,
     timestamp_seconds: f64,
+    occurrence: Option<u32>,
     name: Option<String>,
 ) -> Result<(), String> {
     let normalized_name = normalize_manual_marker_name(name);
+    let occurrence = occurrence.unwrap_or(0) as usize;
 
-    if update_live_manual_marker_name(timestamp_seconds, normalized_name.clone())? {
+    if update_live_manual_marker_name(timestamp_seconds, occurrence, normalized_name.clone())? {
         return Ok(());
     }
 
@@ -344,12 +346,14 @@ pub fn update_manual_marker_name(
     update_manual_marker_name_in_sidecar(
         Path::new(recording_path),
         timestamp_seconds,
+        occurrence,
         normalized_name,
     )
 }
 
 fn update_live_manual_marker_name(
     timestamp_seconds: f64,
+    occurrence: usize,
     name: Option<String>,
 ) -> Result<bool, String> {
     let state = WATCH_STATE.lock().map_err(|error| error.to_string())?;
@@ -366,7 +370,7 @@ fn update_live_manual_marker_name(
             return Ok(false);
         }
 
-        metadata_accumulator.set_manual_marker_name(timestamp_seconds, name)
+        metadata_accumulator.set_manual_marker_name(timestamp_seconds, occurrence, name)
     };
 
     if !marker_was_named {

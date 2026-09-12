@@ -10,6 +10,7 @@ import {
   getManualMarkerLabel,
   isVideoSeekBarEvent,
   MANUAL_MARKER_NAME_MAX_LENGTH,
+  manualMarkerOccurrenceIndex,
   normalizeManualMarkerName,
   type GameEvent,
 } from "../../types/events";
@@ -208,6 +209,7 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
         await invoke("update_manual_marker_name", {
           filePath: isRecording ? recordingPath : loadedFilePath ?? recordingPath,
           timestampSeconds: markerEvent.timestamp,
+          occurrence: manualMarkerOccurrenceIndex(events, markerEvent),
           name: nextName ?? null,
         });
         updateEventName(markerEvent.id, nextName);
@@ -218,7 +220,7 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
         setIsSavingName(false);
       }
     },
-    [isRecording, isSavingName, loadedFilePath, recordingPath, stopEditing, updateEventName],
+    [events, isRecording, isSavingName, loadedFilePath, recordingPath, stopEditing, updateEventName],
   );
 
   const handleEventClick = (timestamp: number) => {

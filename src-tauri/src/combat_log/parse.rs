@@ -92,7 +92,11 @@ pub(crate) fn parse_important_combat_event(
     update_debug_context(context, &parsed_line);
 
     if let Some(zone_name) = extract_zone_name(&parsed_line.raw_event_type, &parsed_line.fields) {
-        context.current_zone = Some(zone_name);
+        // MAP_CHANGE/ZONE_CHANGED fire for dungeon floors (Augurs' Terrace inside Murder
+        // Row). Keep the CHALLENGE_MODE_START dungeon name as the M+ zone.
+        if parsed_line.raw_event_type == "CHALLENGE_MODE_START" || !context.in_challenge_mode {
+            context.current_zone = Some(zone_name);
+        }
     }
 
     let (encounter_name, encounter_category) =

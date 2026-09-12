@@ -16,6 +16,7 @@ const EVENT_LABELS: Record<GameEventType, string> = {
   combatRes: "Combat Res",
   crowdControl: "Crowd Control",
   crowdControlBreak: "Crowd Control Break",
+  note: "Note",
 };
 
 function getEventDescription(event: GameEvent): string {
@@ -49,6 +50,15 @@ function getEventDescription(event: GameEvent): string {
     return `${event.source ?? "Unknown"} broke ${event.abilityName ?? "crowd control"} on ${
       event.target ?? "Unknown"
     }`;
+  }
+
+  if (event.type === "note") {
+    const noteText = event.note ?? "Review note";
+    if (noteText.length <= 80) {
+      return noteText;
+    }
+
+    return `${noteText.slice(0, 77)}...`;
   }
 
   return `${event.source ?? "Unknown"} killed ${event.target ?? "Unknown"}`;

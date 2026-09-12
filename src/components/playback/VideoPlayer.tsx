@@ -15,6 +15,7 @@ import {
   Play,
   SkipBack,
   SkipForward,
+  StickyNote,
   Volume2,
   VolumeX,
   X,
@@ -25,12 +26,14 @@ import { useMarker } from "../../contexts/MarkerContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { EventMarker } from "../events/EventMarker";
 import { EventTooltip } from "../events/EventTooltip";
+import { NoteEditorDialog } from "../events/NoteEditorDialog";
 import { PlaybackEventList } from "../events/PlaybackEventList";
 import { ControlIconButton } from "./ControlIconButton";
 import { ImportCombatLogControl } from "./ImportCombatLogControl";
 import { EVENT_SEEK_OFFSET_SECONDS, isVideoSeekBarEvent, type GameEvent } from "../../types/events";
 import { getErrorMessage } from "../../services/tauri";
 import { formatTime } from "../../utils/format";
+import { saveRecordingNote } from "../../utils/recording-notes";
 import {
   screenshotFileNameFromPath,
   screenshotFileStemFromPath,
@@ -57,6 +60,7 @@ const PLAYBACK_SHORTCUTS = [
   { keys: "Shift + ← / →", action: "Seek 5 seconds when the player is focused" },
   { keys: "Home / End", action: "Jump to start / end when the player is focused" },
   { keys: "S", action: "Save a screenshot of the current frame" },
+  { keys: "N", action: "Add a note at the current time" },
 ];
 
 export function VideoPlayer() {
@@ -71,6 +75,7 @@ export function VideoPlayer() {
     videoSrc,
     loadedFilePath,
     togglePlay,
+    pause,
     setVolume,
     setPlaybackRate,
     seek,
@@ -81,7 +86,7 @@ export function VideoPlayer() {
   } = useVideo();
 
   const { isRecording, recordingWarning } = useRecording();
-  const { filteredEvents } = useMarker();
+  const { addEvent, filteredEvents } = useMarker();
   const { settings } = useSettings();
   const reduceMotion = useReducedMotion();
   const prefersReducedMotion = reduceMotion !== false;
@@ -113,6 +118,10 @@ export function VideoPlayer() {
   const [seekBarTooltipX, setSeekBarTooltipX] = useState(0);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [hoverPreview, setHoverPreview] = useState<{ time: number; x: number } | null>(null);
+  const [isNoteEditorOpen, setIsNoteEditorOpen] = useState(false);
+  const [noteEditorTimestamp, setNoteEditorTimestamp] = useState(0);
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
   const [screenshotNotice, setScreenshotNotice] = useState<{
     kind: "error" | "success";
@@ -122,6 +131,41 @@ export function VideoPlayer() {
   const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   const showVideo = Boolean(videoSrc) && !isRecording;
+  const canAddNote = showVideo && Boolean(loadedFilePath);
+
+  const openNoteEditor = useCallback(() => {
+    if (!canAddNote) {
+      return;
+    }
+
+    pause();
+    setNoteEditorTimestamp(currentTime);
+    setNoteError(null);
+    setIsNoteEditorOpen(true);
+  }, [canAddNote, currentTime, pause]);
+
+  const handleSaveNote = useCallback(async (text: string) => {
+    if (!loadedFilePath || isSavingNote) {
+      return;
+    }
+
+    setIsSavingNote(true);
+    setNoteError(null);
+
+    try {
+      const savedNote = await saveRecordingNote({
+        filePath: loadedFilePath,
+        timestampSeconds: noteEditorTimestamp,
+        text,
+      });
+      addEvent(savedNote);
+      setIsNoteEditorOpen(false);
+    } catch (error) {
+      setNoteError(getErrorMessage(error) || "Could not save the note.");
+    } finally {
+      setIsSavingNote(false);
+    }
+  }, [addEvent, isSavingNote, loadedFilePath, noteEditorTimestamp]);
   const canShowFullscreenEvents = isImmersiveMode && showVideo && settings.showFullscreenEventsPanel;
   const toggleImmersiveMode = () => {
     setIsImmersiveMode((currentValue) => !currentValue);
@@ -292,7 +336,7 @@ export function VideoPlayer() {
         return;
       }
 
-      if (showSpeedMenu || showShortcutHelp) {
+      if (showSpeedMenu || showShortcutHelp || isNoteEditorOpen) {
         return;
       }
 
@@ -311,7 +355,7 @@ export function VideoPlayer() {
     return () => {
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [isFullscreenEventsOpen, isImmersiveMode, showShortcutHelp, showSpeedMenu]);
+  }, [isFullscreenEventsOpen, isImmersiveMode, isNoteEditorOpen, showShortcutHelp, showSpeedMenu]);
 
   useEffect(() => {
     if (isImmersiveMode) {
@@ -371,6 +415,20 @@ export function VideoPlayer() {
         return;
       }
 
+      if (
+        !event.defaultPrevented &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !isEditableKeyboardTarget(event.target) &&
+        !documentHasOpenModalDialog() &&
+        (event.key === "n" || event.key === "N")
+      ) {
+        event.preventDefault();
+        openNoteEditor();
+        return;
+      }
+
       const action = resolvePlaybackShortcut(event, {
         isEditableTarget: isEditableKeyboardTarget(event.target),
         isModalDialogOpen: documentHasOpenModalDialog(),
@@ -418,7 +476,7 @@ export function VideoPlayer() {
     return () => {
       window.removeEventListener("keydown", handlePlaybackShortcut);
     };
-  }, [capturePlaybackScreenshot, duration, seek, showVideo, skipPlaybackBySeconds, togglePlay]);
+  }, [capturePlaybackScreenshot, duration, openNoteEditor, seek, showVideo, skipPlaybackBySeconds, togglePlay]);
 
   useEffect(() => {
     if (!showVideo) {
@@ -1024,6 +1082,13 @@ export function VideoPlayer() {
             </div>
 
             <div className="flex items-center gap-2 md:shrink-0">
+              <ControlIconButton
+                label="Add note (N)"
+                onClick={openNoteEditor}
+                disabled={!canAddNote}
+              >
+                <StickyNote className="w-5 h-5" />
+              </ControlIconButton>
               <ImportCombatLogControl />
               <div ref={speedMenuRef} className="relative">
                 <button
@@ -1185,6 +1250,28 @@ export function VideoPlayer() {
   return (
     <div ref={inlineSurfaceHostRef} className="relative h-full w-full">
       {createPortal(playerSurface, document.body)}
+      {isNoteEditorOpen
+        ? createPortal(
+            <NoteEditorDialog
+              title="Add note"
+              timestamp={noteEditorTimestamp}
+              isSaving={isSavingNote}
+              error={noteError}
+              onSave={(text) => {
+                void handleSaveNote(text);
+              }}
+              onCancel={() => {
+                if (isSavingNote) {
+                  return;
+                }
+
+                setIsNoteEditorOpen(false);
+                setNoteError(null);
+              }}
+            />,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

@@ -16,6 +16,7 @@ const DEFAULT_EVENT_TYPE_VISIBILITY: Record<GameEventType, boolean> = {
   combatRes: true,
   crowdControl: true,
   crowdControlBreak: true,
+  note: true,
 };
 
 interface MarkerContextType {
@@ -26,6 +27,8 @@ interface MarkerContextType {
   hideNpcEvents: boolean;
   eventTypeVisibility: Record<GameEventType, boolean>;
   addEvent: (event: GameEvent) => void;
+  updateEvent: (eventId: string, nextEvent: GameEvent) => void;
+  removeEvent: (eventId: string) => void;
   setEvents: (events: GameEvent[]) => void;
   setEncounters: (encounters: RecordingEncounterMetadata[]) => void;
   setPlayers: (players: RecordingPlayerMetadata[]) => void;
@@ -87,6 +90,17 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
     setEvents((previousEvents) => insertEventByTimestamp(previousEvents, event));
   }, []);
 
+  const updateEvent = useCallback((eventId: string, nextEvent: GameEvent) => {
+    setEvents((previousEvents) => {
+      const remainingEvents = previousEvents.filter((event) => event.id !== eventId);
+      return insertEventByTimestamp(remainingEvents, nextEvent);
+    });
+  }, []);
+
+  const removeEvent = useCallback((eventId: string) => {
+    setEvents((previousEvents) => previousEvents.filter((event) => event.id !== eventId));
+  }, []);
+
   const replaceEvents = useCallback((nextEvents: GameEvent[]) => {
     setEvents(sortEventsByTimestamp(nextEvents));
   }, []);
@@ -107,6 +121,8 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
         hideNpcEvents,
         eventTypeVisibility,
         addEvent,
+        updateEvent,
+        removeEvent,
         setEvents: replaceEvents,
         setEncounters,
         setPlayers,

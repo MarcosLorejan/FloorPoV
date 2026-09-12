@@ -115,8 +115,11 @@ pub(crate) fn parse_important_combat_event(
     context: &mut DebugParseContext,
 ) -> Option<ImportantCombatEvent> {
     let parsed_line = parse_log_line_fields(line, context.current_encounter.as_deref())?;
+    // Vote-to-abandon / hearth never writes CHALLENGE_MODE_END. An outdoor
+    // ZONE_CHANGE is the combat-log signal that the key is over.
+    let raw_event_type = remap_instance_leave_to_challenge_end(context, &parsed_line);
 
-    update_debug_context(context, &parsed_line);
+    update_debug_context(context, &raw_event_type, &parsed_line);
 
     if let Some(zone_name) = extract_zone_name(&parsed_line.raw_event_type, &parsed_line.fields) {
         // MAP_CHANGE/ZONE_CHANGED fire for dungeon floors (Augurs' Terrace inside Murder
@@ -138,7 +141,7 @@ pub(crate) fn parse_important_combat_event(
     }
 
     Some(ImportantCombatEvent {
-        raw_event_type: parsed_line.raw_event_type,
+        raw_event_type,
         log_timestamp: Some(parsed_line.log_timestamp),
         event_type: parsed_line.normalized_event_type,
         source: parsed_line.source,
@@ -808,8 +811,42 @@ fn parse_unconscious_flag(value: &str) -> Option<bool> {
     }
 }
 
-fn update_debug_context(context: &mut DebugParseContext, parsed_line: &ParsedLogLine) {
-    match parsed_line.raw_event_type.as_str() {
+fn remap_instance_leave_to_challenge_end(
+    context: &DebugParseContext,
+    parsed_line: &ParsedLogLine,
+) -> String {
+    if context.in_challenge_mode
+        && outdoor_zone_change_left_instance(&parsed_line.raw_event_type, &parsed_line.fields)
+    {
+        return "CHALLENGE_MODE_END".to_string();
+    }
+
+    parsed_line.raw_event_type.clone()
+}
+
+fn outdoor_zone_change_left_instance(raw_event_type: &str, fields: &[String]) -> bool {
+    if !matches!(
+        raw_event_type,
+        "ZONE_CHANGE" | "ZONE_CHANGED" | "ZONE_CHANGE_NEW_AREA"
+    ) {
+        return false;
+    }
+
+    matches!(
+        fields
+            .get(2)
+            .map(|value| value.trim().trim_matches('"'))
+            .and_then(|value| value.parse::<i64>().ok()),
+        Some(0)
+    )
+}
+
+fn update_debug_context(
+    context: &mut DebugParseContext,
+    raw_event_type: &str,
+    parsed_line: &ParsedLogLine,
+) {
+    match raw_event_type {
         "CHALLENGE_MODE_START" => {
             context.in_challenge_mode = true;
             context.current_key_level = extract_challenge_mode_key_level(&parsed_line.fields);

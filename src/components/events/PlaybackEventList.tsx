@@ -1,8 +1,10 @@
-import { useMemo } from "react";
-import { ListVideo } from "lucide-react";
+import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { ListVideo, Pencil, Trash2 } from "lucide-react";
 import { useMarker } from "../../contexts/MarkerContext";
 import { useRecording } from "../../contexts/RecordingContext";
 import { useVideo } from "../../contexts/VideoContext";
+import { getErrorMessage } from "../../services/tauri";
 import {
   EVENT_SEEK_OFFSET_SECONDS,
   isCrowdControlEventType,
@@ -11,7 +13,10 @@ import {
   type GameEventType,
 } from "../../types/events";
 import { formatTime, formatUnitName } from "../../utils/format";
+import { deleteRecordingNote, saveRecordingNote } from "../../utils/recording-notes";
+import { DeleteConfirmDialog } from "../ui/DeleteConfirmDialog";
 import { EventMarker, EventTypeFilter } from "./EventMarker";
+import { NoteEditorDialog } from "./NoteEditorDialog";
 
 const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   death: "Death",
@@ -23,6 +28,7 @@ const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   bossAbility: "Boss Ability",
   crowdControl: "Crowd Control",
   crowdControlBreak: "CC Break",
+  note: "Note",
 };
 
 const EVENT_LIST_FILTER_TYPES: GameEventType[] = [
@@ -34,6 +40,7 @@ const EVENT_LIST_FILTER_TYPES: GameEventType[] = [
   "bossAbility",
   "crowdControl",
   "crowdControlBreak",
+  "note",
 ];
 
 function getEventListDetail(event: GameEvent): string {
@@ -66,6 +73,10 @@ function getEventListDetail(event: GameEvent): string {
     return event.abilityName ? `${actors} · ${event.abilityName}` : actors;
   }
 
+  if (event.type === "note") {
+    return event.note ?? "Review note";
+  }
+
   return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
 }
 
@@ -74,12 +85,18 @@ interface PlaybackEventListProps {
 }
 
 export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProps) {
-  const { currentTime, seek, videoSrc } = useVideo();
+  const { currentTime, loadedFilePath, seek, videoSrc } = useVideo();
   const { isRecording } = useRecording();
-  const { events, filteredEvents } = useMarker();
+  const { events, filteredEvents, updateEvent, removeEvent } = useMarker();
+  const [editingNote, setEditingNote] = useState<GameEvent | null>(null);
+  const [notePendingDelete, setNotePendingDelete] = useState<GameEvent | null>(null);
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [isDeletingNote, setIsDeletingNote] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
   const listEvents = useMemo(() => filteredEvents.filter(isVideoSeekBarEvent), [filteredEvents]);
   const hasTimelineEvents = events.some(isVideoSeekBarEvent);
   const isOverlay = variant === "overlay";
+  const canEditNotes = Boolean(loadedFilePath) && !isRecording;
 
   const activeEventId = useMemo(() => {
     let activeId: string | null = null;
@@ -100,6 +117,48 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
     seek(Math.max(0, timestamp - EVENT_SEEK_OFFSET_SECONDS));
   };
 
+  const handleSaveEditedNote = async (text: string) => {
+    if (!editingNote || !loadedFilePath || isSavingNote) {
+      return;
+    }
+
+    setIsSavingNote(true);
+    setNoteError(null);
+
+    try {
+      const savedNote = await saveRecordingNote({
+        filePath: loadedFilePath,
+        noteId: editingNote.id,
+        timestampSeconds: editingNote.timestamp,
+        text,
+      });
+      updateEvent(editingNote.id, savedNote);
+      setEditingNote(null);
+    } catch (error) {
+      setNoteError(getErrorMessage(error) || "Could not save the note.");
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
+  const handleConfirmDeleteNote = async () => {
+    if (!notePendingDelete || !loadedFilePath || isDeletingNote) {
+      return;
+    }
+
+    setIsDeletingNote(true);
+
+    try {
+      await deleteRecordingNote(loadedFilePath, notePendingDelete.id);
+      removeEvent(notePendingDelete.id);
+      setNotePendingDelete(null);
+    } catch (error) {
+      setNoteError(getErrorMessage(error) || "Could not delete the note.");
+    } finally {
+      setIsDeletingNote(false);
+    }
+  };
+
   return (
     <aside
       className={
@@ -114,15 +173,22 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           Events
         </div>
         <EventTypeFilter types={EVENT_LIST_FILTER_TYPES} />
+        {noteError && !editingNote ? (
+          <p className="text-xs text-rose-300" role="alert">
+            {noteError}
+          </p>
+        ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, crowd control, boss abilities, and markers.
+            Load a recording to see deaths, interrupts, crowd control, boss abilities, markers, and
+            notes.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, crowd control, boss abilities, or markers in this recording.
+            No deaths, interrupts, bloodlust, combat res, crowd control, boss abilities, markers, or
+            notes in this recording. Import a combat log from the player controls to add them.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>
@@ -133,38 +199,112 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
 
               return (
                 <li key={event.id}>
-                  <button
-                    type="button"
-                    onClick={() => handleEventClick(event.timestamp)}
-                    className={`flex w-full items-start gap-2 px-3 py-2 text-left transition-colors ${
+                  <div
+                    className={`flex w-full items-start gap-1 px-1 py-1 ${
                       isActive ? "bg-white/10" : "hover:bg-white/5"
                     }`}
-                    aria-current={isActive ? "true" : undefined}
-                    aria-label={`Seek to ${EVENT_LIST_LABELS[event.type]} at ${formatTime(event.timestamp)}`}
                   >
-                    <span className="mt-0.5 shrink-0">
-                      <EventMarker type={event.type} variant="compact" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-baseline justify-between gap-2">
-                        <span className="text-xs font-medium text-neutral-100">
-                          {EVENT_LIST_LABELS[event.type]}
+                    <button
+                      type="button"
+                      onClick={() => handleEventClick(event.timestamp)}
+                      className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1 text-left transition-colors"
+                      aria-current={isActive ? "true" : undefined}
+                      aria-label={`Seek to ${EVENT_LIST_LABELS[event.type]} at ${formatTime(event.timestamp)}`}
+                    >
+                      <span className="mt-0.5 shrink-0">
+                        <EventMarker type={event.type} variant="compact" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline justify-between gap-2">
+                          <span className="text-xs font-medium text-neutral-100">
+                            {EVENT_LIST_LABELS[event.type]}
+                          </span>
+                          <span className="shrink-0 font-mono text-[11px] text-neutral-400">
+                            {formatTime(event.timestamp)}
+                          </span>
                         </span>
-                        <span className="shrink-0 font-mono text-[11px] text-neutral-400">
-                          {formatTime(event.timestamp)}
+                        <span className="mt-0.5 block truncate text-xs text-neutral-400">
+                          {getEventListDetail(event)}
                         </span>
                       </span>
-                      <span className="mt-0.5 block truncate text-xs text-neutral-400">
-                        {getEventListDetail(event)}
-                      </span>
-                    </span>
-                  </button>
+                    </button>
+                    {event.type === "note" && canEditNotes ? (
+                      <div className="flex shrink-0 items-center pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteError(null);
+                            setEditingNote(event);
+                          }}
+                          className="rounded p-1 text-neutral-400 transition-colors hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
+                          aria-label={`Edit note at ${formatTime(event.timestamp)}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteError(null);
+                            setNotePendingDelete(event);
+                          }}
+                          className="rounded p-1 text-neutral-400 transition-colors hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
+                          aria-label={`Delete note at ${formatTime(event.timestamp)}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 </li>
               );
             })}
           </ul>
         )}
       </div>
+      {editingNote
+        ? createPortal(
+            <NoteEditorDialog
+              title="Edit note"
+              timestamp={editingNote.timestamp}
+              initialText={editingNote.note ?? ""}
+              isSaving={isSavingNote}
+              error={noteError}
+              onSave={(text) => {
+                void handleSaveEditedNote(text);
+              }}
+              onCancel={() => {
+                if (isSavingNote) {
+                  return;
+                }
+
+                setEditingNote(null);
+                setNoteError(null);
+              }}
+            />,
+            document.body,
+          )
+        : null}
+      {notePendingDelete
+        ? createPortal(
+            <DeleteConfirmDialog
+              title="Delete note"
+              description={`Delete the note at ${formatTime(notePendingDelete.timestamp)}? This cannot be undone.`}
+              isDeleting={isDeletingNote}
+              confirmLabel="Delete note"
+              onConfirm={() => {
+                void handleConfirmDeleteNote();
+              }}
+              onCancel={() => {
+                if (isDeletingNote) {
+                  return;
+                }
+
+                setNotePendingDelete(null);
+              }}
+            />,
+            document.body,
+          )
+        : null}
     </aside>
   );
 }

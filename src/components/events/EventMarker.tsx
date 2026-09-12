@@ -1,4 +1,15 @@
-import { Flag, Heart, ShieldOff, Skull, Snowflake, Sparkles, Sword, Unlock, Zap } from "lucide-react";
+import {
+  Flag,
+  Heart,
+  ShieldOff,
+  Skull,
+  Snowflake,
+  Sparkles,
+  StickyNote,
+  Sword,
+  Unlock,
+  Zap,
+} from "lucide-react";
 import { useMarker } from "../../contexts/MarkerContext";
 import { GameEventType } from "../../types/events";
 
@@ -30,6 +41,7 @@ const ICONS: Record<GameEventType, React.ComponentType<{ className?: string }>> 
   bossAbility: Sparkles,
   crowdControl: Snowflake,
   crowdControlBreak: Unlock,
+  note: StickyNote,
 };
 
 const MARKER_CLASS_NAMES: Record<GameEventType, Record<EventMarkerVariant, string>> = {
@@ -69,6 +81,10 @@ const MARKER_CLASS_NAMES: Record<GameEventType, Record<EventMarkerVariant, strin
     compact: "rounded-full bg-indigo-300 text-indigo-950",
     detailed: "rounded-full border border-indigo-100/45 bg-indigo-300 text-indigo-950",
   },
+  note: {
+    compact: "rounded-sm bg-violet-400 text-violet-950",
+    detailed: "rounded-sm border border-violet-200/40 bg-violet-400 text-violet-950",
+  },
 };
 
 export function EventMarker({ type, variant = "compact", className }: EventMarkerProps) {
@@ -93,6 +109,7 @@ const EVENT_TYPE_FILTER_LABELS: Record<GameEventType, string> = {
   bossAbility: "Boss abilities",
   crowdControl: "Crowd Control",
   crowdControlBreak: "CC Breaks",
+  note: "Notes",
 };
 
 const DEFAULT_EVENT_TYPE_FILTERS: GameEventType[] = ["death", "interrupt", "manual", "kill"];

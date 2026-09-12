@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   convertCombatEvent,
   convertRecordingMetadataToGameEvents,
+  convertRecordingNoteToGameEvent,
   isVideoSeekBarEvent,
+  recordingMetadataHasCombatContent,
   shouldShowGameEvent,
   type GameEvent,
   type GameEventType,
@@ -19,7 +21,16 @@ const ALL_EVENT_TYPES_VISIBLE: Record<GameEventType, boolean> = {
   bossAbility: true,
   crowdControl: true,
   crowdControlBreak: true,
+  note: true,
 };
+
+function metadata(overrides: Partial<RecordingMetadata> = {}): RecordingMetadata {
+  return {
+    schemaVersion: 2,
+    recordingFile: "screen_recording_20260911_175201.mp4",
+    ...overrides,
+  };
+}
 
 function metadataWithEvents(
   importantEvents: NonNullable<RecordingMetadata["importantEvents"]>,
@@ -127,7 +138,105 @@ describe("boss ability playback mapping", () => {
   });
 });
 
+describe("convertRecordingNoteToGameEvent", () => {
+  test("maps a persisted note onto the playback event list", () => {
+    expect(
+      convertRecordingNoteToGameEvent({
+        id: "note-1",
+        timestampSeconds: 42.25,
+        text: "  watch the frontal  ",
+      }),
+    ).toEqual({
+      id: "note-1",
+      timestamp: 42.25,
+      type: "note",
+      note: "watch the frontal",
+    });
+  });
+
+  test("skips notes without usable text or time", () => {
+    expect(
+      convertRecordingNoteToGameEvent({
+        id: "note-2",
+        timestampSeconds: 10,
+        text: "   ",
+      }),
+    ).toBeNull();
+    expect(
+      convertRecordingNoteToGameEvent({
+        id: "note-3",
+        timestampSeconds: Number.NaN,
+        text: "later",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("recordingMetadataHasCombatContent", () => {
+  test("returns false for missing metadata", () => {
+    expect(recordingMetadataHasCombatContent(null)).toBe(false);
+  });
+
+  test("returns false for an empty sidecar", () => {
+    expect(recordingMetadataHasCombatContent(metadata())).toBe(false);
+  });
+
+  test("returns true when combat fields are present", () => {
+    expect(recordingMetadataHasCombatContent(metadata({ zoneName: "Voidscar Arena" }))).toBe(true);
+    expect(
+      recordingMetadataHasCombatContent(
+        metadata({
+          importantEvents: [
+            {
+              timestampSeconds: 12,
+              eventType: "UNIT_DIED",
+            },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("convertRecordingMetadataToGameEvents", () => {
+  test("includes notes without replacing manual markers", () => {
+    const events = convertRecordingMetadataToGameEvents({
+      schemaVersion: 2,
+      recordingFile: "key.mp4",
+      importantEvents: [
+        {
+          timestampSeconds: 8,
+          eventType: "MANUAL_MARKER",
+        },
+      ],
+      notes: [
+        {
+          id: "note-keep",
+          timestampSeconds: 12,
+          text: "missed kick",
+        },
+      ],
+    });
+
+    expect(events).toEqual([
+      {
+        id: "MANUAL_MARKER-8-0",
+        timestamp: 8,
+        type: "manual",
+        source: undefined,
+        target: undefined,
+        targetKind: undefined,
+        abilityName: undefined,
+      },
+      {
+        id: "note-keep",
+        timestamp: 12,
+        type: "note",
+        note: "missed kick",
+      },
+    ]);
+  });
+
   test("maps crowd control apply and break with ability names", () => {
     const events = convertRecordingMetadataToGameEvents(
       metadataWithEvents([

@@ -69,6 +69,8 @@ export function getEventTypeLabel(eventType: string): string {
       return "Dispel";
     case "MANUAL_MARKER":
       return "Manual Marker";
+    case "NOTE":
+      return "Note";
     case "ENCOUNTER_START":
       return "Encounter Start";
     case "ENCOUNTER_END":

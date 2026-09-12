@@ -12,13 +12,14 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useMarker } from "../../contexts/MarkerContext";
+import { useRecording } from "../../contexts/RecordingContext";
 import { useVideo } from "../../contexts/VideoContext";
 import { useRecordingsList } from "../../hooks/useRecordingsList";
 import { useClearStalePlayback } from "../../hooks/useClearStalePlayback";
 import { RecordingMetadata } from "../../types/events";
 import { RecordingInfo } from "../../types/recording";
 import { type GameMode } from "../../types/ui";
-import { formatBytes, formatDate, formatEncounterCategory, formatTime, getEventTypeLabel } from "../../utils/format";
+import { formatBytes, formatCompactAmount, formatDate, formatEncounterCategory, formatTime, getEventTypeLabel } from "../../utils/format";
 import { getRecordingDisplayTitle } from "../../utils/recording-title";
 import { GameEvents } from "../events/GameEvents";
 import { PlaybackEventList } from "../events/PlaybackEventList";
@@ -100,6 +101,7 @@ export function GameModePage({ gameMode }: GameModePageProps) {
   const [isEventsOpen, setIsEventsOpen] = useState(false);
   const metadataRequestPathRef = useRef<string | null>(null);
   const { setEncounters } = useMarker();
+  const { playbackMetadataEpoch } = useRecording();
   const { isCompareMode } = useVideo();
   const { recordings, isLoading: isRecordingsLoading, error: recordingsError, loadRecordings, setRecordings } =
     useRecordingsList();
@@ -169,6 +171,14 @@ export function GameModePage({ gameMode }: GameModePageProps) {
     !isRecordingsLoading && !recordingsError,
     handleStalePlaybackCleared,
   );
+
+  useEffect(() => {
+    if (!selectedRecording || playbackMetadataEpoch === 0) {
+      return;
+    }
+
+    void loadRecordingMetadata(selectedRecording.file_path);
+  }, [loadRecordingMetadata, playbackMetadataEpoch, selectedRecording]);
 
   const sortedEventCounts = useMemo(() => {
     if (!recordingMetadata?.importantEventCounts) {
@@ -562,6 +572,7 @@ export function GameModePage({ gameMode }: GameModePageProps) {
                                         <th className="px-2 py-1.5 font-medium">Ability</th>
                                         <th className="px-2 py-1.5 font-medium">Source</th>
                                         <th className="px-2 py-1.5 font-medium">Target</th>
+                                        <th className="px-2 py-1.5 font-medium">Amount</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -582,6 +593,9 @@ export function GameModePage({ gameMode }: GameModePageProps) {
                                           </td>
                                           <td className="px-2 py-1.5 text-neutral-300">{event.source || "-"}</td>
                                           <td className="px-2 py-1.5 text-neutral-300">{event.target || "-"}</td>
+                                          <td className="px-2 py-1.5 font-mono text-neutral-300">
+                                            {formatCompactAmount(event.amount) || "-"}
+                                          </td>
                                         </tr>
                                       ))}
                                     </tbody>

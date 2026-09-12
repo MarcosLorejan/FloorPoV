@@ -3,6 +3,8 @@ import {
   GameEvent,
   GameEventType,
   RecordingEncounterMetadata,
+  RecordingPlayerMetadata,
+  shouldPromptManualMarkerName,
   shouldShowGameEvent,
 } from "../types/events";
 
@@ -14,21 +16,32 @@ const DEFAULT_EVENT_TYPE_VISIBILITY: Record<GameEventType, boolean> = {
   bloodlust: true,
   combatRes: true,
   defensive: true,
+  bigHit: true,
+  heal: true,
+  bossAbility: true,
   crowdControl: true,
   crowdControlBreak: true,
+  note: true,
 };
 
 interface MarkerContextType {
   events: GameEvent[];
   filteredEvents: GameEvent[];
   encounters: RecordingEncounterMetadata[];
+  players: RecordingPlayerMetadata[];
   hideNpcEvents: boolean;
   eventTypeVisibility: Record<GameEventType, boolean>;
   addEvent: (event: GameEvent) => void;
+  updateEvent: (eventId: string, nextEvent: GameEvent) => void;
+  removeEvent: (eventId: string) => void;
   setEvents: (events: GameEvent[]) => void;
   setEncounters: (encounters: RecordingEncounterMetadata[]) => void;
+  setPlayers: (players: RecordingPlayerMetadata[]) => void;
   setHideNpcEvents: (hide: boolean) => void;
   toggleEventTypeVisibility: (type: GameEventType) => void;
+  updateEventName: (eventId: string, name: string | undefined) => void;
+  pendingRenameEventId: string | null;
+  clearPendingRename: () => void;
   clearEvents: () => void;
 }
 
@@ -66,8 +79,10 @@ function insertEventByTimestamp(sortedEvents: GameEvent[], nextEvent: GameEvent)
 export function MarkerProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [encounters, setEncounters] = useState<RecordingEncounterMetadata[]>([]);
+  const [players, setPlayers] = useState<RecordingPlayerMetadata[]>([]);
   const [hideNpcEvents, setHideNpcEvents] = useState(true);
   const [eventTypeVisibility, setEventTypeVisibility] = useState(DEFAULT_EVENT_TYPE_VISIBILITY);
+  const [pendingRenameEventId, setPendingRenameEventId] = useState<string | null>(null);
 
   const filteredEvents = useMemo(() => {
     return events.filter((event) => shouldShowGameEvent(event, hideNpcEvents, eventTypeVisibility));
@@ -82,15 +97,42 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
 
   const addEvent = useCallback((event: GameEvent) => {
     setEvents((previousEvents) => insertEventByTimestamp(previousEvents, event));
+    if (event.type === "manual" && shouldPromptManualMarkerName()) {
+      setPendingRenameEventId(event.id);
+    }
+  }, []);
+
+  const updateEvent = useCallback((eventId: string, nextEvent: GameEvent) => {
+    setEvents((previousEvents) => {
+      const remainingEvents = previousEvents.filter((event) => event.id !== eventId);
+      return insertEventByTimestamp(remainingEvents, nextEvent);
+    });
+  }, []);
+
+  const removeEvent = useCallback((eventId: string) => {
+    setEvents((previousEvents) => previousEvents.filter((event) => event.id !== eventId));
   }, []);
 
   const replaceEvents = useCallback((nextEvents: GameEvent[]) => {
     setEvents(sortEventsByTimestamp(nextEvents));
+    setPendingRenameEventId(null);
+  }, []);
+
+  const updateEventName = useCallback((eventId: string, name: string | undefined) => {
+    setEvents((previousEvents) =>
+      previousEvents.map((event) => (event.id === eventId ? { ...event, name } : event)),
+    );
+  }, []);
+
+  const clearPendingRename = useCallback(() => {
+    setPendingRenameEventId(null);
   }, []);
 
   const clearEvents = useCallback(() => {
     setEvents([]);
     setEncounters([]);
+    setPlayers([]);
+    setPendingRenameEventId(null);
   }, []);
 
   return (
@@ -99,13 +141,20 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
         events,
         filteredEvents,
         encounters,
+        players,
         hideNpcEvents,
         eventTypeVisibility,
         addEvent,
+        updateEvent,
+        removeEvent,
         setEvents: replaceEvents,
         setEncounters,
+        setPlayers,
         setHideNpcEvents,
         toggleEventTypeVisibility,
+        updateEventName,
+        pendingRenameEventId,
+        clearPendingRename,
         clearEvents,
       }}
     >

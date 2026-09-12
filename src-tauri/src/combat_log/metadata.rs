@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -9,8 +9,9 @@ use crate::recording::metadata::{
 
 use super::parse::{
     extract_raw_event_type_from_line, is_context_only_event, log_clock_diff_seconds,
-    normalize_name, parse_combatant_info_snapshot, parse_important_combat_event,
-    parse_player_identities_from_log_line, should_reset_player_roster_for_event, DebugParseContext,
+    normalize_name, parse_combat_amount_sample, parse_combatant_info_snapshot,
+    parse_important_combat_event, parse_player_identities_from_log_line,
+    should_reset_player_roster_for_event, CombatAmountKind, CombatAmountSample, DebugParseContext,
     ImportantCombatEvent, LogTimestamp,
 };
 use super::{
@@ -36,6 +37,8 @@ pub(crate) struct RecordingMetadataAccumulator {
     recording_active: bool,
     recording_elapsed_origin_seconds: f64,
     session_log_origin_seconds: Option<f64>,
+    last_damage_by_dest: HashMap<String, u64>,
+    persist_all_high_volume_events: bool,
 }
 
 impl RecordingMetadataAccumulator {
@@ -53,7 +56,17 @@ impl RecordingMetadataAccumulator {
         self.capture_combatant_info_snapshot(line);
         self.capture_player_names_for_known_roster(line);
 
-        let parsed_event = parse_important_combat_event(line, &mut self.context)?;
+        let amount_event = self.ingest_combat_amount_line(line, elapsed_seconds);
+
+        let Some(mut parsed_event) = parse_important_combat_event(line, &mut self.context) else {
+            return amount_event;
+        };
+
+        if parsed_event.event_type == "UNIT_DIED" {
+            if let Some(dest_guid) = parsed_event.dest_guid.as_ref() {
+                parsed_event.amount = self.last_damage_by_dest.get(dest_guid).copied();
+            }
+        }
 
         if parsed_event.raw_event_type == "CHALLENGE_MODE_START" {
             update_option_if_some(&mut self.zone_name, parsed_event.zone_name.as_ref());
@@ -68,9 +81,22 @@ impl RecordingMetadataAccumulator {
         Some(parsed_event)
     }
 
+    pub(crate) fn begin_import_session(&mut self) {
+        self.reset_recording_data();
+        self.recording_active = true;
+        self.recording_elapsed_origin_seconds = 0.0;
+        self.persist_all_high_volume_events = true;
+        self.recording_players = self.context_players.clone();
+        self.zone_name = self.context.current_zone.clone();
+        self.latest_encounter_name = self.context.current_encounter.clone();
+        self.latest_encounter_category = self.context.current_encounter_category.clone();
+        self.key_level = self.context.current_key_level;
+    }
+
     pub(crate) fn begin_recording_session(&mut self, elapsed_seconds: f64) {
         self.reset_recording_data();
         self.recording_active = true;
+        self.persist_all_high_volume_events = false;
         self.recording_elapsed_origin_seconds = elapsed_seconds;
         self.recording_players = self.context_players.clone();
         self.zone_name = self.context.current_zone.clone();
@@ -121,16 +147,19 @@ impl RecordingMetadataAccumulator {
                 target: None,
                 target_kind: None,
                 ability_name: None,
+                amount: None,
                 zone_name: self.zone_name.clone(),
                 encounter_name: self.latest_encounter_name.clone(),
                 encounter_category: self.latest_encounter_category.clone(),
                 key_level: self.key_level,
+                name: None,
             });
         }
     }
 
     pub(crate) fn finish_recording_session(&mut self) {
         self.recording_active = false;
+        self.persist_all_high_volume_events = false;
     }
 
     pub(crate) fn is_recording_session_active(&self) -> bool {
@@ -226,6 +255,7 @@ impl RecordingMetadataAccumulator {
         self.important_events_dropped_count = 0;
         self.high_volume_events_in_buffer = 0;
         self.session_log_origin_seconds = None;
+        self.last_damage_by_dest.clear();
     }
 
     pub(crate) fn record_manual_marker(&mut self, elapsed_seconds: f64) {
@@ -240,6 +270,8 @@ impl RecordingMetadataAccumulator {
             source: None,
             target: None,
             target_kind: None,
+            dest_guid: None,
+            amount: None,
             ability_name: None,
             zone_name: self.zone_name.clone(),
             encounter_name: self.latest_encounter_name.clone(),
@@ -300,11 +332,85 @@ impl RecordingMetadataAccumulator {
             target: event.target.clone(),
             target_kind: event.target_kind.clone(),
             ability_name: event.ability_name.clone(),
+            amount: event.amount,
             zone_name: event.zone_name.clone(),
             encounter_name: event.encounter_name.clone(),
             encounter_category: event.encounter_category.clone(),
             key_level: event.key_level,
+            name: None,
         });
+    }
+
+    fn ingest_combat_amount_line(
+        &mut self,
+        line: &str,
+        elapsed_seconds: f64,
+    ) -> Option<ImportantCombatEvent> {
+        let sample = parse_combat_amount_sample(line)?;
+        self.note_last_damage(&sample);
+
+        if !self.recording_active || !sample.persist_as_marker {
+            return None;
+        }
+
+        let amount_event = self.amount_sample_as_event(sample);
+        self.record_important_event(&amount_event, elapsed_seconds);
+        Some(amount_event)
+    }
+
+    fn note_last_damage(&mut self, sample: &CombatAmountSample) {
+        if sample.kind != CombatAmountKind::Damage {
+            return;
+        }
+
+        self.last_damage_by_dest
+            .insert(sample.dest_guid.clone(), sample.amount);
+    }
+
+    fn amount_sample_as_event(&self, sample: CombatAmountSample) -> ImportantCombatEvent {
+        let event_type = match sample.kind {
+            CombatAmountKind::Damage => "BIG_HIT",
+            CombatAmountKind::Heal => "HEAL",
+        };
+
+        ImportantCombatEvent {
+            raw_event_type: sample.raw_event_type,
+            log_timestamp: sample.log_timestamp,
+            event_type: event_type.to_string(),
+            source: sample.source,
+            target: sample.target,
+            target_kind: sample.target_kind,
+            dest_guid: Some(sample.dest_guid),
+            amount: Some(sample.amount),
+            ability_name: None,
+            zone_name: self
+                .zone_name
+                .clone()
+                .or_else(|| self.context.current_zone.clone()),
+            encounter_name: self
+                .latest_encounter_name
+                .clone()
+                .or_else(|| self.context.current_encounter.clone()),
+            encounter_category: self
+                .latest_encounter_category
+                .clone()
+                .or_else(|| self.context.current_encounter_category.clone()),
+            key_level: self.key_level.or(self.context.current_key_level),
+        }
+    }
+
+    pub(crate) fn set_manual_marker_name(
+        &mut self,
+        timestamp_seconds: f64,
+        occurrence: usize,
+        name: Option<String>,
+    ) -> bool {
+        crate::recording::metadata::apply_manual_marker_name(
+            &mut self.important_events,
+            timestamp_seconds,
+            occurrence,
+            name,
+        )
     }
 
     fn reset_player_roster(&mut self) {
@@ -411,7 +517,7 @@ impl RecordingMetadataAccumulator {
     }
 
     fn push_event_with_cap(&mut self, event: RecordingImportantEventMetadata) {
-        if is_structural_event_type(&event.event_type) {
+        if is_structural_event_type(&event.event_type) || self.persist_all_high_volume_events {
             self.important_events.push(event);
             return;
         }

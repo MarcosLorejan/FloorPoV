@@ -1,4 +1,5 @@
 pub(crate) mod debug;
+pub(crate) mod import;
 pub(crate) mod metadata;
 pub(crate) mod parse;
 pub(crate) mod watch;
@@ -19,6 +20,8 @@ pub struct CombatEvent {
     pub event_type: String,
     pub source: Option<String>,
     pub target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount: Option<u64>,
     pub ability_name: Option<String>,
 }
 

@@ -63,6 +63,7 @@ const ENCOUNTER_TIMELINE_LEGEND_TYPES = [
   "BLOODLUST",
   "COMBAT_RES",
   "DEFENSIVE",
+  "BOSS_ABILITY",
   "CROWD_CONTROL",
   "CROWD_CONTROL_BREAK",
   "SPELL_DISPEL",
@@ -107,7 +108,9 @@ function getEventMarkerClassName(eventType: string): string {
     case "COMBAT_RES":
       return "bg-emerald-200 border-emerald-50/85";
     case "DEFENSIVE":
-      return "bg-teal-200 border-teal-50/85";
+      return "bg-cyan-200 border-cyan-50/85";
+    case "BOSS_ABILITY":
+      return "bg-fuchsia-200 border-fuchsia-50/85";
     case "CROWD_CONTROL":
       return "bg-violet-200 border-violet-50/85";
     case "CROWD_CONTROL_BREAK":
@@ -133,6 +136,8 @@ function getEventMarkerIcon(eventType: string) {
       return Heart;
     case "DEFENSIVE":
       return Shield;
+    case "BOSS_ABILITY":
+      return Sparkles;
     case "CROWD_CONTROL":
       return Snowflake;
     case "CROWD_CONTROL_BREAK":
@@ -157,7 +162,9 @@ function getEventIconClassName(eventType: string): string {
     case "COMBAT_RES":
       return "text-emerald-950";
     case "DEFENSIVE":
-      return "text-teal-950";
+      return "text-cyan-950";
+    case "BOSS_ABILITY":
+      return "text-fuchsia-950";
     case "CROWD_CONTROL":
       return "text-violet-950";
     case "CROWD_CONTROL_BREAK":

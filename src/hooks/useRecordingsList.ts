@@ -54,9 +54,13 @@ export function useRecordingsList(): UseRecordingsListResult {
     const unlistenRecordingStopped = listen("recording-stopped", () => {
       void loadRecordings();
     });
+    const unlistenCombatLogImported = listen("combat-log-imported", () => {
+      void loadRecordings();
+    });
 
     return () => {
       unlistenRecordingStopped.then((unsubscribe) => unsubscribe());
+      unlistenCombatLogImported.then((unsubscribe) => unsubscribe());
     };
   }, [loadRecordings]);
 

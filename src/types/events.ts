@@ -6,8 +6,12 @@ export type GameEventType =
   | "bloodlust"
   | "combatRes"
   | "defensive"
+  | "bigHit"
+  | "heal"
+  | "bossAbility"
   | "crowdControl"
-  | "crowdControlBreak";
+  | "crowdControlBreak"
+  | "note";
 
 export interface GameEvent {
   id: string;
@@ -16,7 +20,10 @@ export interface GameEvent {
   source?: string;
   target?: string;
   targetKind?: string;
+  amount?: number;
   abilityName?: string;
+  name?: string;
+  note?: string;
 }
 
 export interface RecordingImportantEventMetadata {
@@ -26,11 +33,13 @@ export interface RecordingImportantEventMetadata {
   source?: string;
   target?: string;
   targetKind?: string;
+  amount?: number;
   abilityName?: string;
   zoneName?: string;
   encounterName?: string;
   encounterCategory?: string;
   keyLevel?: number;
+  name?: string;
 }
 
 export interface RecordingEncounterMetadata {
@@ -48,6 +57,12 @@ export interface RecordingPlayerMetadata {
   specId?: number;
 }
 
+export interface RecordingNoteMetadata {
+  id: string;
+  timestampSeconds: number;
+  text: string;
+}
+
 export interface RecordingMetadata {
   schemaVersion: number;
   recordingFile: string;
@@ -60,6 +75,7 @@ export interface RecordingMetadata {
   importantEventCounts?: Record<string, number>;
   importantEventsDroppedCount?: number;
   players?: RecordingPlayerMetadata[];
+  notes?: RecordingNoteMetadata[];
 }
 
 export interface CombatEvent {
@@ -67,7 +83,9 @@ export interface CombatEvent {
   eventType: string;
   source?: string;
   target?: string;
+  amount?: number;
   abilityName?: string;
+  name?: string;
 }
 
 export interface CombatTriggerEvent {
@@ -107,7 +125,70 @@ export interface ParseCombatLogDebugResult {
   truncated: boolean;
 }
 
+export type ImportCombatLogMode = "overwrite" | "merge";
+
+export interface ImportCombatLogResult {
+  recordingPath: string;
+  mode: ImportCombatLogMode;
+  importedEventCount: number;
+  totalEventCount: number;
+  backupPath?: string | null;
+}
+
 export const EVENT_SEEK_OFFSET_SECONDS = 5;
+export const MANUAL_MARKER_NAME_MAX_LENGTH = 64;
+export const MANUAL_MARKER_TIMESTAMP_EPSILON_SECONDS = 0.05;
+
+/** 0-based index among manual markers in the same timestamp window, matching sidecar order. */
+export function manualMarkerOccurrenceIndex(
+  events: GameEvent[],
+  targetEvent: GameEvent,
+): number {
+  let occurrence = 0;
+
+  for (const event of events) {
+    if (event.type !== "manual") {
+      continue;
+    }
+
+    if (Math.abs(event.timestamp - targetEvent.timestamp) > MANUAL_MARKER_TIMESTAMP_EPSILON_SECONDS) {
+      continue;
+    }
+
+    if (event.id === targetEvent.id) {
+      return occurrence;
+    }
+
+    occurrence += 1;
+  }
+
+  return 0;
+}
+
+export function normalizeManualMarkerName(value: string | undefined | null): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const collapsed = value.trim().replace(/\s+/g, " ");
+  if (!collapsed) {
+    return undefined;
+  }
+
+  return Array.from(collapsed).slice(0, MANUAL_MARKER_NAME_MAX_LENGTH).join("");
+}
+
+export function getManualMarkerLabel(event: Pick<GameEvent, "name">): string {
+  return event.name ?? "Manual marker";
+}
+
+export function shouldPromptManualMarkerName(): boolean {
+  if (typeof document === "undefined") {
+    return false;
+  }
+
+  return document.visibilityState === "visible" && document.hasFocus();
+}
 
 const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "PARTY_KILL",
@@ -117,6 +198,9 @@ const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "BLOODLUST",
   "COMBAT_RES",
   "DEFENSIVE",
+  "BIG_HIT",
+  "HEAL",
+  "BOSS_ABILITY",
   "CROWD_CONTROL",
   "CROWD_CONTROL_BREAK",
 ]);
@@ -169,6 +253,18 @@ function mapEventTypeToGameEventType(eventType: string): GameEventType {
     return "defensive";
   }
 
+  if (eventType === "BIG_HIT") {
+    return "bigHit";
+  }
+
+  if (eventType === "HEAL") {
+    return "heal";
+  }
+
+  if (eventType === "BOSS_ABILITY") {
+    return "bossAbility";
+  }
+
   if (eventType === "CROWD_CONTROL") {
     return "crowdControl";
   }
@@ -178,6 +274,28 @@ function mapEventTypeToGameEventType(eventType: string): GameEventType {
   }
 
   return "manual";
+}
+
+export function convertRecordingNoteToGameEvent(note: RecordingNoteMetadata): GameEvent | null {
+  if (!note.id.trim()) {
+    return null;
+  }
+
+  if (!Number.isFinite(note.timestampSeconds) || note.timestampSeconds < 0) {
+    return null;
+  }
+
+  const text = note.text.trim();
+  if (!text) {
+    return null;
+  }
+
+  return {
+    id: note.id,
+    timestamp: note.timestampSeconds,
+    type: "note",
+    note: text,
+  };
 }
 
 export function isCrowdControlEventType(type: GameEventType): boolean {
@@ -195,6 +313,7 @@ function isDeduplicatedEventType(type: GameEventType): boolean {
     type === "bloodlust" ||
     type === "combatRes" ||
     type === "defensive" ||
+    type === "bossAbility" ||
     isCrowdControlEventType(type)
   );
 }
@@ -213,7 +332,7 @@ function isDuplicateOfEvent(existingEvent: GameEvent, event: GameEvent): boolean
     );
   }
 
-  if (event.type === "defensive") {
+  if (event.type === "defensive" || event.type === "bossAbility") {
     return (
       Math.abs(existingEvent.timestamp - event.timestamp) < DUPLICATE_EVENT_WINDOW_SECONDS &&
       existingEvent.source === event.source &&
@@ -230,11 +349,7 @@ function isDuplicateOfEvent(existingEvent: GameEvent, event: GameEvent): boolean
 export function convertRecordingMetadataToGameEvents(
   metadata: RecordingMetadata | null,
 ): GameEvent[] {
-  if (!metadata?.importantEvents?.length) {
-    return [];
-  }
-
-  return metadata.importantEvents
+  const combatEvents = (metadata?.importantEvents ?? [])
     .flatMap((importantEvent, index) => {
       if (!SUPPORTED_PLAYBACK_EVENT_TYPES.has(importantEvent.eventType)) {
         return [];
@@ -251,7 +366,9 @@ export function convertRecordingMetadataToGameEvents(
         source: importantEvent.source,
         target: importantEvent.target,
         targetKind: importantEvent.targetKind,
+        amount: importantEvent.amount,
         abilityName: importantEvent.abilityName,
+        name: normalizeManualMarkerName(importantEvent.name),
       }];
     })
     .sort((a, b) => a.timestamp - b.timestamp)
@@ -271,6 +388,30 @@ export function convertRecordingMetadataToGameEvents(
 
       return uniqueEvents;
     }, []);
+
+  const noteEvents = (metadata?.notes ?? []).flatMap((note) => {
+    const gameEvent = convertRecordingNoteToGameEvent(note);
+    return gameEvent ? [gameEvent] : [];
+  });
+
+  return [...combatEvents, ...noteEvents].sort((left, right) => left.timestamp - right.timestamp);
+}
+
+export function recordingMetadataHasCombatContent(metadata: RecordingMetadata | null): boolean {
+  if (!metadata) {
+    return false;
+  }
+
+  return Boolean(
+    metadata.zoneName ||
+      metadata.encounterName ||
+      metadata.encounterCategory ||
+      metadata.keyLevel ||
+      metadata.encounters?.length ||
+      metadata.importantEvents?.length ||
+      metadata.players?.length ||
+      metadata.importantEventsDroppedCount,
+  );
 }
 
 export function isVideoSeekBarEvent(event: GameEvent): boolean {
@@ -281,7 +422,11 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
     event.type === "bloodlust" ||
     event.type === "combatRes" ||
     event.type === "defensive" ||
-    isCrowdControlEventType(event.type)
+    event.type === "bigHit" ||
+    event.type === "heal" ||
+    event.type === "bossAbility" ||
+    isCrowdControlEventType(event.type) ||
+    event.type === "note"
   );
 }
 
@@ -299,7 +444,11 @@ export function shouldShowGameEvent(
     event.type === "interrupt" ||
     event.type === "bloodlust" ||
     event.type === "combatRes" ||
-    event.type === "defensive"
+    event.type === "defensive" ||
+    event.type === "bigHit" ||
+    event.type === "heal" ||
+    event.type === "bossAbility" ||
+    event.type === "note"
   ) {
     return true;
   }
@@ -317,18 +466,27 @@ export function shouldShowGameEvent(
   return !isNpcKind(event.targetKind, event.target);
 }
 
+// Live events arrive one at a time and two markers can share a timestamp, so ids need a
+// sequence to stay unique. Renaming a marker targets the event by id, not by timestamp.
+let liveEventSequence = 0;
+
 export function convertCombatEvent(combatEvent: CombatEvent): GameEvent {
   const type = mapEventTypeToGameEventType(combatEvent.eventType);
+  liveEventSequence += 1;
   const identity = [combatEvent.source, combatEvent.target, combatEvent.abilityName]
     .filter(Boolean)
     .join("-");
 
   return {
-    id: `${combatEvent.timestamp}-${combatEvent.eventType}-${identity}`,
+    id: identity
+      ? `${combatEvent.eventType}-${combatEvent.timestamp}-live-${liveEventSequence}-${identity}`
+      : `${combatEvent.eventType}-${combatEvent.timestamp}-live-${liveEventSequence}`,
     timestamp: combatEvent.timestamp,
     type,
     source: combatEvent.source,
     target: combatEvent.target,
+    amount: combatEvent.amount,
     abilityName: combatEvent.abilityName,
+    name: normalizeManualMarkerName(combatEvent.name),
   };
 }

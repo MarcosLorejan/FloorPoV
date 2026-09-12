@@ -221,6 +221,26 @@ pub fn get_recording_metadata(
 }
 
 #[tauri::command]
+pub fn save_recording_note(
+    file_path: String,
+    note_id: Option<String>,
+    timestamp_seconds: f64,
+    text: String,
+) -> Result<recording_metadata::RecordingNoteMetadata, String> {
+    recording_metadata::upsert_recording_note(
+        Path::new(&file_path),
+        note_id,
+        timestamp_seconds,
+        &text,
+    )
+}
+
+#[tauri::command]
+pub fn delete_recording_note(file_path: String, note_id: String) -> Result<(), String> {
+    recording_metadata::delete_recording_note(Path::new(&file_path), &note_id)
+}
+
+#[tauri::command]
 pub fn delete_recording(file_path: String) -> Result<(), String> {
     let path = Path::new(&file_path);
 

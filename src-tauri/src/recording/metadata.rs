@@ -30,6 +30,8 @@ pub struct RecordingImportantEventMetadata {
     pub target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ability_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zone_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -534,6 +536,7 @@ mod tests {
                 source: Some("PlayerOne".to_string()),
                 target: Some("Boss".to_string()),
                 target_kind: Some("NPC".to_string()),
+                ability_name: Some("Pummel".to_string()),
                 zone_name: Some("Test Zone".to_string()),
                 encounter_name: Some("Test Encounter".to_string()),
                 encounter_category: Some("raid".to_string()),
@@ -553,6 +556,10 @@ mod tests {
 
         assert_eq!(loaded_metadata.important_events.len(), 1);
         assert_eq!(
+            loaded_metadata.important_events[0].ability_name.as_deref(),
+            Some("Pummel")
+        );
+        assert_eq!(
             loaded_metadata
                 .important_event_counts
                 .get("SPELL_INTERRUPT")
@@ -568,6 +575,29 @@ mod tests {
         std::fs::remove_file(&recording_path).expect("Failed to remove test recording file");
         std::fs::remove_dir_all(&temp_directory)
             .expect("Failed to remove temporary metadata test directory");
+    }
+
+    #[test]
+    fn loads_important_events_when_ability_name_is_missing() {
+        let metadata = serde_json::from_str::<RecordingMetadata>(
+            r#"{
+                "schemaVersion": 2,
+                "recordingFile": "clip.mp4",
+                "capturedAtUnix": 1,
+                "importantEvents": [{
+                    "timestampSeconds": 16.0,
+                    "eventType": "CROWD_CONTROL",
+                    "source": "PaladinOne",
+                    "target": "WarriorOne",
+                    "targetKind": "PLAYER"
+                }]
+            }"#,
+        )
+        .expect("legacy sidecars without abilityName should still load");
+
+        assert_eq!(metadata.important_events.len(), 1);
+        assert_eq!(metadata.important_events[0].ability_name, None);
+        assert_eq!(metadata.important_events[0].event_type, "CROWD_CONTROL");
     }
 
     #[test]

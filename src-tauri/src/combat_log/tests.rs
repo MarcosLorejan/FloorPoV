@@ -182,6 +182,296 @@ fn records_combat_res_from_spell_resurrect() {
     );
 }
 
+#[allow(clippy::too_many_arguments)]
+fn build_aura_line(
+    event_type: &str,
+    source_guid: &str,
+    source_name: &str,
+    source_flags: &str,
+    dest_guid: &str,
+    dest_name: &str,
+    dest_flags: &str,
+    spell_id: &str,
+    spell_name: &str,
+    extra_fields: &[&str],
+) -> String {
+    let mut fields = vec![
+        source_guid,
+        source_name,
+        source_flags,
+        "0x0",
+        dest_guid,
+        dest_name,
+        dest_flags,
+        "0x0",
+        spell_id,
+        spell_name,
+        "2",
+    ];
+    fields.extend_from_slice(extra_fields);
+    build_line(event_type, &fields)
+}
+
+#[test]
+fn records_crowd_control_apply_on_player() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let hammer_line = build_aura_line(
+        "SPELL_AURA_APPLIED",
+        "Player-1111-00000010",
+        "\"PaladinOne-NA\"",
+        "0x514",
+        "Player-1111-00000011",
+        "\"WarriorOne-NA\"",
+        "0x514",
+        "853",
+        "\"Hammer of Justice\"",
+        &["DEBUFF"],
+    );
+    accumulator.consume_combat_log_line(&hammer_line, 16.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.important_events.len(), 1);
+    assert_eq!(snapshot.important_events[0].event_type, "CROWD_CONTROL");
+    assert_eq!(
+        snapshot.important_events[0].source.as_deref(),
+        Some("PaladinOne-NA")
+    );
+    assert_eq!(
+        snapshot.important_events[0].target.as_deref(),
+        Some("WarriorOne-NA")
+    );
+    assert_eq!(
+        snapshot.important_events[0].target_kind.as_deref(),
+        Some("PLAYER")
+    );
+    assert_eq!(
+        snapshot.important_events[0].ability_name.as_deref(),
+        Some("Hammer of Justice")
+    );
+}
+
+#[test]
+fn records_crowd_control_break_on_player() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let break_line = build_aura_line(
+        "SPELL_AURA_BROKEN",
+        "Player-1111-00000012",
+        "\"RogueOne-NA\"",
+        "0x514",
+        "Player-1111-00000011",
+        "\"WarriorOne-NA\"",
+        "0x514",
+        "853",
+        "\"Hammer of Justice\"",
+        &["DEBUFF"],
+    );
+    accumulator.consume_combat_log_line(&break_line, 18.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.important_events.len(), 1);
+    assert_eq!(
+        snapshot.important_events[0].event_type,
+        "CROWD_CONTROL_BREAK"
+    );
+    assert_eq!(
+        snapshot.important_events[0].source.as_deref(),
+        Some("RogueOne-NA")
+    );
+    assert_eq!(
+        snapshot.important_events[0].target.as_deref(),
+        Some("WarriorOne-NA")
+    );
+    assert_eq!(
+        snapshot.important_events[0].ability_name.as_deref(),
+        Some("Hammer of Justice")
+    );
+}
+
+#[test]
+fn records_crowd_control_break_spell_on_player() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let break_spell_line = build_aura_line(
+        "SPELL_AURA_BROKEN_SPELL",
+        "Player-1111-00000012",
+        "\"RogueOne-NA\"",
+        "0x514",
+        "Player-1111-00000011",
+        "\"WarriorOne-NA\"",
+        "0x514",
+        "122",
+        "\"Frost Nova\"",
+        &["408", "\"Kidney Shot\"", "1", "DEBUFF"],
+    );
+    accumulator.consume_combat_log_line(&break_spell_line, 21.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.important_events.len(), 1);
+    assert_eq!(
+        snapshot.important_events[0].event_type,
+        "CROWD_CONTROL_BREAK"
+    );
+    assert_eq!(
+        snapshot.important_events[0].ability_name.as_deref(),
+        Some("Frost Nova")
+    );
+}
+
+#[test]
+fn records_affix_stun_on_player() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let quaking_line = build_aura_line(
+        "SPELL_AURA_APPLIED",
+        "Player-1111-00000011",
+        "\"WarriorOne-NA\"",
+        "0x514",
+        "Player-1111-00000011",
+        "\"WarriorOne-NA\"",
+        "0x514",
+        "240447",
+        "\"Quake\"",
+        &["DEBUFF"],
+    );
+    accumulator.consume_combat_log_line(&quaking_line, 30.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.important_events.len(), 1);
+    assert_eq!(snapshot.important_events[0].event_type, "CROWD_CONTROL");
+    assert_eq!(
+        snapshot.important_events[0].ability_name.as_deref(),
+        Some("Quake")
+    );
+}
+
+#[test]
+fn ignores_crowd_control_on_npc() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let roots_line = build_aura_line(
+        "SPELL_AURA_APPLIED",
+        "Player-1111-00000002",
+        "\"DruidOne-NA\"",
+        "0x514",
+        "Creature-0-0-0-0-1002-0000000000",
+        "\"Enemy1\"",
+        "0x10a48",
+        "339",
+        "\"Entangling Roots\"",
+        &["DEBUFF"],
+    );
+    accumulator.consume_combat_log_line(&roots_line, 9.0);
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot.important_events.is_empty());
+}
+
+#[test]
+fn ignores_unrelated_player_debuff() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let moonfire_line = build_aura_line(
+        "SPELL_AURA_APPLIED",
+        "Player-1111-00000002",
+        "\"DruidOne-NA\"",
+        "0x514",
+        "Player-1111-00000011",
+        "\"WarriorOne-NA\"",
+        "0x514",
+        "164812",
+        "\"Moonfire\"",
+        &["DEBUFF"],
+    );
+    accumulator.consume_combat_log_line(&moonfire_line, 10.0);
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot.important_events.is_empty());
+}
+
+#[test]
+fn ignores_crowd_control_spell_applied_as_buff() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let hammer_buff_line = build_aura_line(
+        "SPELL_AURA_APPLIED",
+        "Player-1111-00000010",
+        "\"PaladinOne-NA\"",
+        "0x514",
+        "Player-1111-00000011",
+        "\"WarriorOne-NA\"",
+        "0x514",
+        "853",
+        "\"Hammer of Justice\"",
+        &["BUFF"],
+    );
+    accumulator.consume_combat_log_line(&hammer_buff_line, 16.0);
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot.important_events.is_empty());
+}
+
+#[test]
+fn ignores_polymorph_incapacitate_on_player() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let polymorph_line = build_aura_line(
+        "SPELL_AURA_APPLIED",
+        "Player-1111-00000001",
+        "\"MageOne-NA\"",
+        "0x514",
+        "Player-1111-00000011",
+        "\"WarriorOne-NA\"",
+        "0x514",
+        "118",
+        "\"Polymorph\"",
+        &["DEBUFF"],
+    );
+    accumulator.consume_combat_log_line(&polymorph_line, 11.0);
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot.important_events.is_empty());
+}
+
+#[test]
+fn crowd_control_apply_emits_live_event_with_ability_name() {
+    let mut context = super::parse::DebugParseContext::default();
+    let hammer_line = build_aura_line(
+        "SPELL_AURA_APPLIED",
+        "Player-1111-00000010",
+        "\"PaladinOne-NA\"",
+        "0x514",
+        "Player-1111-00000011",
+        "\"WarriorOne-NA\"",
+        "0x514",
+        "853",
+        "\"Hammer of Justice\"",
+        &["DEBUFF"],
+    );
+    let parsed_event = parse_important_combat_event(&hammer_line, &mut context)
+        .expect("player stun apply should parse as an important event");
+    let live_event = parsed_event
+        .into_live_event(Some(16.0))
+        .expect("crowd control applies should emit live playback events");
+
+    assert_eq!(live_event.event_type, "CROWD_CONTROL");
+    assert_eq!(live_event.source.as_deref(), Some("PaladinOne-NA"));
+    assert_eq!(live_event.target.as_deref(), Some("WarriorOne-NA"));
+    assert_eq!(
+        live_event.ability_name.as_deref(),
+        Some("Hammer of Justice")
+    );
+}
+
 #[test]
 fn ignores_unrelated_spell_cast_success() {
     let mut accumulator = RecordingMetadataAccumulator::default();
@@ -949,6 +1239,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: Some("Atlas".to_string()),
             target_kind: Some("PLAYER".to_string()),
+            ability_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: None,
             encounter_category: None,
@@ -961,6 +1252,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: None,
             target_kind: None,
+            ability_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),
@@ -973,6 +1265,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: None,
             target_kind: None,
+            ability_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),

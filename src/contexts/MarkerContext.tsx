@@ -1,18 +1,21 @@
 import { createContext, ReactNode, useContext, useState, useCallback, useMemo } from "react";
 import {
   GameEvent,
+  GameEventType,
   RecordingEncounterMetadata,
   shouldPromptManualMarkerName,
   shouldShowGameEvent,
 } from "../types/events";
 
-const DEFAULT_EVENT_TYPE_VISIBILITY: Record<GameEvent["type"], boolean> = {
+const DEFAULT_EVENT_TYPE_VISIBILITY: Record<GameEventType, boolean> = {
   kill: true,
   death: true,
   manual: true,
   interrupt: true,
   bloodlust: true,
   combatRes: true,
+  crowdControl: true,
+  crowdControlBreak: true,
 };
 
 interface MarkerContextType {
@@ -20,12 +23,12 @@ interface MarkerContextType {
   filteredEvents: GameEvent[];
   encounters: RecordingEncounterMetadata[];
   hideNpcEvents: boolean;
-  eventTypeVisibility: Record<GameEvent["type"], boolean>;
+  eventTypeVisibility: Record<GameEventType, boolean>;
   addEvent: (event: GameEvent) => void;
   setEvents: (events: GameEvent[]) => void;
   setEncounters: (encounters: RecordingEncounterMetadata[]) => void;
   setHideNpcEvents: (hide: boolean) => void;
-  toggleEventTypeVisibility: (type: GameEvent["type"]) => void;
+  toggleEventTypeVisibility: (type: GameEventType) => void;
   updateEventName: (eventId: string, name: string | undefined) => void;
   pendingRenameEventId: string | null;
   clearPendingRename: () => void;
@@ -74,7 +77,7 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
     return events.filter((event) => shouldShowGameEvent(event, hideNpcEvents, eventTypeVisibility));
   }, [events, hideNpcEvents, eventTypeVisibility]);
 
-  const toggleEventTypeVisibility = useCallback((type: GameEvent["type"]) => {
+  const toggleEventTypeVisibility = useCallback((type: GameEventType) => {
     setEventTypeVisibility((currentVisibility) => ({
       ...currentVisibility,
       [type]: !currentVisibility[type],

@@ -3,6 +3,7 @@ import {
   GameEvent,
   GameEventType,
   RecordingEncounterMetadata,
+  RecordingPlayerMetadata,
   shouldShowGameEvent,
 } from "../types/events";
 
@@ -22,6 +23,7 @@ interface MarkerContextType {
   events: GameEvent[];
   filteredEvents: GameEvent[];
   encounters: RecordingEncounterMetadata[];
+  players: RecordingPlayerMetadata[];
   hideNpcEvents: boolean;
   eventTypeVisibility: Record<GameEventType, boolean>;
   addEvent: (event: GameEvent) => void;
@@ -29,6 +31,7 @@ interface MarkerContextType {
   removeEvent: (eventId: string) => void;
   setEvents: (events: GameEvent[]) => void;
   setEncounters: (encounters: RecordingEncounterMetadata[]) => void;
+  setPlayers: (players: RecordingPlayerMetadata[]) => void;
   setHideNpcEvents: (hide: boolean) => void;
   toggleEventTypeVisibility: (type: GameEventType) => void;
   clearEvents: () => void;
@@ -68,6 +71,7 @@ function insertEventByTimestamp(sortedEvents: GameEvent[], nextEvent: GameEvent)
 export function MarkerProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [encounters, setEncounters] = useState<RecordingEncounterMetadata[]>([]);
+  const [players, setPlayers] = useState<RecordingPlayerMetadata[]>([]);
   const [hideNpcEvents, setHideNpcEvents] = useState(true);
   const [eventTypeVisibility, setEventTypeVisibility] = useState(DEFAULT_EVENT_TYPE_VISIBILITY);
 
@@ -104,6 +108,7 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
   const clearEvents = useCallback(() => {
     setEvents([]);
     setEncounters([]);
+    setPlayers([]);
   }, []);
 
   return (
@@ -112,6 +117,7 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
         events,
         filteredEvents,
         encounters,
+        players,
         hideNpcEvents,
         eventTypeVisibility,
         addEvent,
@@ -119,6 +125,7 @@ export function MarkerProvider({ children }: { children: ReactNode }) {
         removeEvent,
         setEvents: replaceEvents,
         setEncounters,
+        setPlayers,
         setHideNpcEvents,
         toggleEventTypeVisibility,
         clearEvents,

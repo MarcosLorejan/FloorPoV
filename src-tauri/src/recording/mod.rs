@@ -12,8 +12,8 @@ use std::path::Path;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
-pub use model::RecordingState;
 pub(crate) use ffmpeg::resolve_ffmpeg_binary_path;
+pub use model::RecordingState;
 pub(crate) use model::CREATE_NO_WINDOW;
 use model::{CaptureInput, RecordingSessionConfig};
 

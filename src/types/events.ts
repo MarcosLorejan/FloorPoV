@@ -115,6 +115,16 @@ export interface ParseCombatLogDebugResult {
   truncated: boolean;
 }
 
+export type ImportCombatLogMode = "overwrite" | "merge";
+
+export interface ImportCombatLogResult {
+  recordingPath: string;
+  mode: ImportCombatLogMode;
+  importedEventCount: number;
+  totalEventCount: number;
+  backupPath?: string | null;
+}
+
 export const EVENT_SEEK_OFFSET_SECONDS = 5;
 
 const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
@@ -286,6 +296,23 @@ export function convertRecordingMetadataToGameEvents(
   });
 
   return [...combatEvents, ...noteEvents].sort((left, right) => left.timestamp - right.timestamp);
+}
+
+export function recordingMetadataHasCombatContent(metadata: RecordingMetadata | null): boolean {
+  if (!metadata) {
+    return false;
+  }
+
+  return Boolean(
+    metadata.zoneName ||
+      metadata.encounterName ||
+      metadata.encounterCategory ||
+      metadata.keyLevel ||
+      metadata.encounters?.length ||
+      metadata.importantEvents?.length ||
+      metadata.players?.length ||
+      metadata.importantEventsDroppedCount,
+  );
 }
 
 export function isVideoSeekBarEvent(event: GameEvent): boolean {

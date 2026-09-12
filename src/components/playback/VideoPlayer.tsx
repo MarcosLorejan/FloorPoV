@@ -29,6 +29,7 @@ import { EventTooltip } from "../events/EventTooltip";
 import { NoteEditorDialog } from "../events/NoteEditorDialog";
 import { PlaybackEventList } from "../events/PlaybackEventList";
 import { ControlIconButton } from "./ControlIconButton";
+import { ImportCombatLogControl } from "./ImportCombatLogControl";
 import { EVENT_SEEK_OFFSET_SECONDS, isVideoSeekBarEvent, type GameEvent } from "../../types/events";
 import { getErrorMessage } from "../../services/tauri";
 import { formatTime } from "../../utils/format";
@@ -283,8 +284,8 @@ export function VideoPlayer() {
       ? { width: immersiveVideoStyle.width }
       : undefined;
   const playerSurfaceClassName = isImmersiveLayerActive
-    ? "fixed z-[200] flex items-center justify-center overflow-hidden bg-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/45"
-    : "fixed z-40 overflow-hidden bg-neutral-950/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/45";
+    ? "theme-on-media fixed z-[200] flex items-center justify-center overflow-hidden bg-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/45"
+    : "theme-on-media fixed z-40 overflow-hidden bg-neutral-950/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/45";
 
   useEffect(() => {
     if (!showSpeedMenu && !showShortcutHelp) {
@@ -1088,7 +1089,7 @@ export function VideoPlayer() {
               >
                 <StickyNote className="w-5 h-5" />
               </ControlIconButton>
-
+              <ImportCombatLogControl />
               <div ref={speedMenuRef} className="relative">
                 <button
                   type="button"

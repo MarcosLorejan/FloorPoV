@@ -180,7 +180,8 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, crowd control, markers, or notes in this recording.
+            No deaths, interrupts, bloodlust, combat res, crowd control, markers, or notes in this
+            recording. Import a combat log from the player controls to add them.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>

@@ -100,7 +100,7 @@ export function HomePage() {
         className="flex w-full shrink-0 overflow-hidden"
         style={{ height: displayedMediaHeight }}
       >
-        <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-neutral-950/70">
+        <main className="theme-on-media flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-neutral-950/70">
           <VideoPlayer />
         </main>
         {showPlaybackWorkspace && <PlaybackEventList />}

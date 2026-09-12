@@ -170,8 +170,8 @@ export function VideoPlayer() {
       ? { width: immersiveVideoStyle.width }
       : undefined;
   const playerSurfaceClassName = isImmersiveLayerActive
-    ? "fixed z-[200] flex items-center justify-center overflow-hidden bg-neutral-950"
-    : "fixed z-40 overflow-hidden bg-neutral-950/90";
+    ? "theme-on-media fixed z-[200] flex items-center justify-center overflow-hidden bg-neutral-950"
+    : "theme-on-media fixed z-40 overflow-hidden bg-neutral-950/90";
 
   useEffect(() => {
     if (!showSpeedMenu) {

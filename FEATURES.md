@@ -35,7 +35,7 @@
 - [ ] Export analysis report
 - [ ] Custom event markers
 - [ ] Keyboard shortcuts
-- [ ] Dark/light theme toggle
+- [x] Dark/light theme toggle
 
 ### Data Management
 

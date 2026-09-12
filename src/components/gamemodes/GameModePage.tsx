@@ -556,6 +556,7 @@ export function GameModePage({ gameMode }: GameModePageProps) {
                                       <tr>
                                         <th className="px-2 py-1.5 font-medium">Time</th>
                                         <th className="px-2 py-1.5 font-medium">Event</th>
+                                        <th className="px-2 py-1.5 font-medium">Ability</th>
                                         <th className="px-2 py-1.5 font-medium">Source</th>
                                         <th className="px-2 py-1.5 font-medium">Target</th>
                                       </tr>
@@ -571,6 +572,9 @@ export function GameModePage({ gameMode }: GameModePageProps) {
                                           </td>
                                           <td className="px-2 py-1.5 text-amber-200">
                                             {getEventTypeLabel(event.eventType)}
+                                          </td>
+                                          <td className="px-2 py-1.5 text-neutral-300">
+                                            {event.abilityName || "-"}
                                           </td>
                                           <td className="px-2 py-1.5 text-neutral-300">{event.source || "-"}</td>
                                           <td className="px-2 py-1.5 text-neutral-300">{event.target || "-"}</td>

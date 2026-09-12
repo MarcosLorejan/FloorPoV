@@ -271,7 +271,9 @@ impl RecordingMetadataAccumulator {
             .entry(event.event_type.clone())
             .or_insert(0) += 1;
 
-        update_option_if_some(&mut self.zone_name, event.zone_name.as_ref());
+        if !self.context.in_challenge_mode {
+            update_option_if_some(&mut self.zone_name, event.zone_name.as_ref());
+        }
         update_option_if_some(
             &mut self.latest_encounter_name,
             event.encounter_name.as_ref(),

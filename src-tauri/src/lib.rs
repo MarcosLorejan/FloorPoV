@@ -76,10 +76,10 @@ pub fn run() {
                 tray::show_main_window(app.handle());
             }
 
-            let output_folder = match settings::get_default_output_folder() {
+            let output_folder = match settings::resolve_startup_recordings_folder(app.handle()) {
                 Ok(path) => path,
                 Err(error) => {
-                    tracing::error!("Failed to determine default output folder: {error}");
+                    tracing::error!("Failed to determine recordings output folder: {error}");
                     app.dialog()
                         .message("Could not determine the recordings output folder. Video playback may not work.")
                         .title("FloorPoV warning")
@@ -89,20 +89,7 @@ pub fn run() {
                 }
             };
 
-            if let Err(error) = std::fs::create_dir_all(&output_folder) {
-                tracing::warn!(
-                    "Failed to create output folder '{output_folder}': {error}"
-                );
-                    app.dialog()
-                    .message(format!(
-                        "Could not create the recordings folder at '{output_folder}'. Video playback may not work until this is fixed."
-                    ))
-                    .title("FloorPoV warning")
-                    .kind(MessageDialogKind::Warning)
-                    .show(|_| {});
-            }
-
-            if let Err(error) = app.handle().asset_protocol_scope().allow_directory(&output_folder, true) {
+            if let Err(error) = settings::register_recordings_folder_scope(app.handle(), &output_folder) {
                 tracing::error!(
                     "Failed to allow output folder '{output_folder}' in asset scope: {error}"
                 );
@@ -113,8 +100,6 @@ pub fn run() {
                     .title("FloorPoV warning")
                     .kind(MessageDialogKind::Warning)
                     .show(|_| {});
-            } else {
-                tracing::info!("Registered asset scope for output folder '{output_folder}'");
             }
 
             Ok(())
@@ -127,6 +112,7 @@ pub fn run() {
             recording::is_wow_process_running,
             recording::get_available_video_encoders,
             settings::get_default_output_folder,
+            settings::allow_recordings_folder,
             settings::get_folder_size,
             settings::get_recordings_list,
             settings::get_recording_metadata,

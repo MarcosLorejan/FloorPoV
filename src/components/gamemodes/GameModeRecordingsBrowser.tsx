@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { Clock3, Film, LoaderCircle, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { useRecording } from "../../contexts/RecordingContext";
@@ -7,6 +7,7 @@ import { useVideo } from "../../contexts/VideoContext";
 import { RecordingInfo } from "../../types/recording";
 import { type GameMode } from "../../types/ui";
 import { formatBytes, formatDate } from "../../utils/format";
+import { toPlaybackSource } from "../../utils/recording-playback";
 import { getRecordingDisplayTitle, isRecordingInGameMode } from "../../utils/recording-title";
 import { DeleteConfirmDialog } from "../ui/DeleteConfirmDialog";
 import { Input } from "../ui/Input";
@@ -175,7 +176,10 @@ export function GameModeRecordingsBrowser({
 
       try {
         await loadPlaybackMetadata(recording.file_path);
-        loadVideo(convertFileSrc(recording.file_path), recording.file_path);
+        loadVideo(
+          await toPlaybackSource(recording.file_path, settings.outputFolder),
+          recording.file_path,
+        );
         onRecordingActivate(recording);
       } catch (loadError) {
         console.error("Failed to activate recording:", loadError);
@@ -184,7 +188,7 @@ export function GameModeRecordingsBrowser({
         setActivatingRecordingPath(null);
       }
     },
-    [isActionLocked, loadPlaybackMetadata, loadVideo, onRecordingActivate],
+    [isActionLocked, loadPlaybackMetadata, loadVideo, onRecordingActivate, settings.outputFolder],
   );
 
   const handleDeleteRecording = useCallback(

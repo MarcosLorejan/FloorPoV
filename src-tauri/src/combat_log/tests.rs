@@ -115,6 +115,32 @@ fn seeds_dungeon_name_from_challenge_start_before_recording() {
 }
 
 #[test]
+fn mythic_plus_keeps_dungeon_name_when_the_map_changes_to_a_floor() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.consume_combat_log_line(
+        &build_line(
+            "CHALLENGE_MODE_START",
+            &["\"Murder Row\"", "2813", "587", "13", "[9", "10", "147]"],
+        ),
+        0.0,
+    );
+    accumulator.begin_recording_session(0.25);
+    accumulator.consume_combat_log_line(
+        &build_line("MAP_CHANGE", &["2813", "\"Augurs' Terrace\""]),
+        1.0,
+    );
+    accumulator.consume_combat_log_line(&build_party_kill_line(1), 2.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.zone_name.as_deref(), Some("Murder Row"));
+    assert_eq!(snapshot.key_level, Some(13));
+    assert_eq!(
+        snapshot.important_events[0].zone_name.as_deref(),
+        Some("Murder Row")
+    );
+}
+
+#[test]
 fn records_bloodlust_from_time_warp_cast() {
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.begin_recording_session(0.0);

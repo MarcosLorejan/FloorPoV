@@ -33,6 +33,9 @@ pub struct RecordingImportantEventMetadata {
     pub target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_kind: Option<String>,
+    /// Dispelled aura or interrupted cast, when the combat log reports one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_spell_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ability_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -829,6 +832,7 @@ mod tests {
                 source: None,
                 target: None,
                 target_kind: None,
+                extra_spell_name: None,
                 ability_name: None,
                 amount: None,
                 zone_name: Some("Murder Row".to_string()),
@@ -846,6 +850,7 @@ mod tests {
                 source: None,
                 target: None,
                 target_kind: None,
+                extra_spell_name: None,
                 ability_name: None,
                 amount: None,
                 zone_name: Some("Augurs' Terrace".to_string()),
@@ -878,7 +883,26 @@ mod tests {
                 source: Some("PlayerOne".to_string()),
                 target: Some("Boss".to_string()),
                 target_kind: Some("NPC".to_string()),
+                extra_spell_name: Some("Void Bolt".to_string()),
                 ability_name: Some("Pummel".to_string()),
+                amount: None,
+                zone_name: Some("Test Zone".to_string()),
+                encounter_name: Some("Test Encounter".to_string()),
+                encounter_category: Some("raid".to_string()),
+                key_level: None,
+                name: None,
+            });
+        metadata
+            .important_events
+            .push(RecordingImportantEventMetadata {
+                timestamp_seconds: 30.0,
+                log_timestamp: Some("2/22 20:15:29.000".to_string()),
+                event_type: "SPELL_DISPEL".to_string(),
+                source: Some("PlayerTwo".to_string()),
+                target: Some("PlayerThree".to_string()),
+                target_kind: Some("PLAYER".to_string()),
+                extra_spell_name: Some("Fear".to_string()),
+                ability_name: None,
                 amount: None,
                 zone_name: Some("Test Zone".to_string()),
                 encounter_name: Some("Test Encounter".to_string()),
@@ -889,6 +913,9 @@ mod tests {
         metadata
             .important_event_counts
             .insert("SPELL_INTERRUPT".to_string(), 42);
+        metadata
+            .important_event_counts
+            .insert("SPELL_DISPEL".to_string(), 7);
         metadata.important_events_dropped_count = 5;
 
         write_recording_metadata(&recording_path, &metadata)
@@ -898,7 +925,7 @@ mod tests {
             .expect("Expected metadata read to succeed")
             .expect("Expected metadata sidecar to exist");
 
-        assert_eq!(loaded_metadata.important_events.len(), 1);
+        assert_eq!(loaded_metadata.important_events.len(), 2);
         assert_eq!(
             loaded_metadata.important_events[0].ability_name.as_deref(),
             Some("Pummel")
@@ -909,6 +936,25 @@ mod tests {
                 .get("SPELL_INTERRUPT")
                 .copied(),
             Some(42)
+        );
+        assert_eq!(
+            loaded_metadata
+                .important_event_counts
+                .get("SPELL_DISPEL")
+                .copied(),
+            Some(7)
+        );
+        assert_eq!(
+            loaded_metadata.important_events[0]
+                .extra_spell_name
+                .as_deref(),
+            Some("Void Bolt")
+        );
+        assert_eq!(
+            loaded_metadata.important_events[1]
+                .extra_spell_name
+                .as_deref(),
+            Some("Fear")
         );
         assert_eq!(loaded_metadata.important_events_dropped_count, 5);
 
@@ -941,6 +987,7 @@ mod tests {
                 source: Some("PriestOne-NA".to_string()),
                 target: Some("TankOne-NA".to_string()),
                 target_kind: Some("PLAYER".to_string()),
+                extra_spell_name: None,
                 ability_name: Some("Pain Suppression".to_string()),
                 amount: None,
                 zone_name: Some("Test Zone".to_string()),
@@ -1136,6 +1183,7 @@ mod tests {
             source: None,
             target: None,
             target_kind: None,
+            extra_spell_name: None,
             ability_name: None,
             amount: None,
             zone_name: None,
@@ -1176,6 +1224,7 @@ mod tests {
                 source: None,
                 target: Some("PlayerOne".to_string()),
                 target_kind: Some("PLAYER".to_string()),
+                extra_spell_name: None,
                 ability_name: None,
                 amount: None,
                 zone_name: None,

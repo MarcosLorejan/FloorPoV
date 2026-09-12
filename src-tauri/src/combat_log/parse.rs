@@ -29,6 +29,9 @@ pub(crate) struct ImportantCombatEvent {
     pub(crate) source: Option<String>,
     pub(crate) target: Option<String>,
     pub(crate) target_kind: Option<String>,
+    /// Spell the event acted upon, such as the dispelled aura or the
+    /// interrupted cast. Empty for events without an `extraSpellName` column.
+    pub(crate) extra_spell_name: Option<String>,
     pub(crate) dest_guid: Option<String>,
     pub(crate) amount: Option<u64>,
     pub(crate) ability_name: Option<String>,
@@ -68,11 +71,14 @@ impl ImportantCombatEvent {
             | "HEAL"
             | "BOSS_ABILITY"
             | "CROWD_CONTROL"
-            | "CROWD_CONTROL_BREAK" => Some(super::CombatEvent {
+            | "CROWD_CONTROL_BREAK"
+            | "SPELL_DISPEL"
+            | "SPELL_INTERRUPT" => Some(super::CombatEvent {
                 timestamp,
                 event_type: self.event_type,
                 source: self.source,
                 target: self.target,
+                extra_spell_name: self.extra_spell_name,
                 amount: self.amount,
                 ability_name: self.ability_name,
             }),
@@ -148,6 +154,7 @@ pub(crate) fn parse_important_combat_event(
         source: parsed_line.source,
         target: parsed_line.target,
         target_kind: parsed_line.target_kind,
+        extra_spell_name: parsed_line.extra_spell_name,
         dest_guid: parsed_line.dest_guid,
         amount: None,
         ability_name: parsed_line.ability_name,
@@ -242,6 +249,7 @@ struct ParsedLogLine {
     source: Option<String>,
     target: Option<String>,
     target_kind: Option<String>,
+    extra_spell_name: Option<String>,
     dest_guid: Option<String>,
     ability_name: Option<String>,
     fields: Vec<String>,
@@ -286,10 +294,27 @@ fn parse_log_line_fields(line: &str, encounter_name: Option<&str>) -> Option<Par
         source: normalize_entity_name(source_name, source_kind.as_deref()),
         target: normalize_entity_name(dest_name, target_kind.as_deref()),
         target_kind,
+        extra_spell_name: extract_extra_spell_name(raw_event_type, &remaining_fields),
         dest_guid: normalize_name(dest_guid),
         ability_name,
         fields: remaining_fields,
     })
+}
+
+/// Column index of `extraSpellName`, which follows the caster's own spell
+/// payload (`spellId`, `spellName`, `spellSchool`) and the affected spell id.
+const EXTRA_SPELL_NAME_FIELD_INDEX: usize = 12;
+
+fn extract_extra_spell_name(raw_event_type: &str, fields: &[String]) -> Option<String> {
+    if !matches!(raw_event_type, "SPELL_DISPEL" | "SPELL_INTERRUPT") {
+        return None;
+    }
+
+    normalize_name(
+        fields
+            .get(EXTRA_SPELL_NAME_FIELD_INDEX)
+            .map(|value| value.as_str()),
+    )
 }
 
 pub(crate) fn parse_combat_amount_sample(line: &str) -> Option<CombatAmountSample> {

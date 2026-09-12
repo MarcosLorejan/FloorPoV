@@ -307,6 +307,7 @@ pub async fn emit_manual_marker(app_handle: AppHandle) -> Result<(), String> {
                 event_type: EVENT_MANUAL_MARKER.to_string(),
                 source: None,
                 target: None,
+                extra_spell_name: None,
                 amount: None,
                 ability_name: None,
             };

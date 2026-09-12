@@ -5,6 +5,7 @@ export type GameEventType =
   | "interrupt"
   | "bloodlust"
   | "combatRes"
+  | "dispel"
   | "defensive"
   | "bigHit"
   | "heal"
@@ -20,6 +21,8 @@ export interface GameEvent {
   source?: string;
   target?: string;
   targetKind?: string;
+  /** Dispelled aura or interrupted cast, when the combat log reports one. */
+  extraSpellName?: string;
   amount?: number;
   abilityName?: string;
   name?: string;
@@ -33,6 +36,7 @@ export interface RecordingImportantEventMetadata {
   source?: string;
   target?: string;
   targetKind?: string;
+  extraSpellName?: string;
   amount?: number;
   abilityName?: string;
   zoneName?: string;
@@ -83,6 +87,7 @@ export interface CombatEvent {
   eventType: string;
   source?: string;
   target?: string;
+  extraSpellName?: string;
   amount?: number;
   abilityName?: string;
   name?: string;
@@ -190,11 +195,95 @@ export function shouldPromptManualMarkerName(): boolean {
   return document.visibilityState === "visible" && document.hasFocus();
 }
 
+function eventActorName(name?: string): string {
+  const trimmedName = name?.trim();
+  return trimmedName ? trimmedName : "Unknown";
+}
+
+function describeSourceTargetAction(event: GameEvent, verb: string): string {
+  const source = eventActorName(event.source);
+  const target = eventActorName(event.target);
+
+  if (event.extraSpellName) {
+    return `${source} ${verb} ${event.extraSpellName} from ${target}`;
+  }
+
+  return `${source} ${verb} ${target}`;
+}
+
+export function getGameEventDescription(event: GameEvent): string {
+  if (event.type === "death") {
+    return `${eventActorName(event.target)} died`;
+  }
+
+  if (event.type === "manual") {
+    return "User marked this moment";
+  }
+
+  if (event.type === "interrupt") {
+    return describeSourceTargetAction(event, "interrupted");
+  }
+
+  if (event.type === "dispel") {
+    return describeSourceTargetAction(event, "dispelled");
+  }
+
+  if (event.type === "bloodlust") {
+    return `${eventActorName(event.source)} used Bloodlust`;
+  }
+
+  if (event.type === "combatRes") {
+    return `${eventActorName(event.source)} combat ressed ${eventActorName(event.target)}`;
+  }
+
+  if (event.type === "defensive") {
+    const source = eventActorName(event.source);
+    const ability = event.abilityName ?? "Unknown";
+    if (event.target && event.target !== event.source) {
+      return `${source} used ${ability} on ${eventActorName(event.target)}`;
+    }
+
+    return `${source} used ${ability}`;
+  }
+
+  if (event.type === "bigHit") {
+    return `${eventActorName(event.source)} hit ${eventActorName(event.target)}`;
+  }
+
+  if (event.type === "heal") {
+    return `${eventActorName(event.source)} healed ${eventActorName(event.target)}`;
+  }
+
+  if (event.type === "bossAbility") {
+    return `${eventActorName(event.source)} cast ${event.abilityName ?? "Unknown"}`;
+  }
+
+  if (event.type === "note") {
+    const noteText = event.note ?? "Review note";
+    if (noteText.length <= 80) {
+      return noteText;
+    }
+
+    return `${noteText.slice(0, 77)}...`;
+  }
+
+  if (event.type === "crowdControl") {
+    return `${eventActorName(event.source)} landed ${event.abilityName ?? "crowd control"} on ${eventActorName(event.target)}`;
+  }
+
+  if (event.type === "crowdControlBreak") {
+    return `${eventActorName(event.source)} broke ${event.abilityName ?? "crowd control"} on ${eventActorName(event.target)}`;
+  }
+
+  return `${eventActorName(event.source)} killed ${eventActorName(event.target)}`;
+}
+
 const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "PARTY_KILL",
   "UNIT_DIED",
   "MANUAL_MARKER",
   "SPELL_INTERRUPT",
+  "SPELL_DISPEL",
   "BLOODLUST",
   "COMBAT_RES",
   "DEFENSIVE",
@@ -239,6 +328,10 @@ function mapEventTypeToGameEventType(eventType: string): GameEventType {
 
   if (eventType === "SPELL_INTERRUPT") {
     return "interrupt";
+  }
+
+  if (eventType === "SPELL_DISPEL") {
+    return "dispel";
   }
 
   if (eventType === "BLOODLUST") {
@@ -366,6 +459,7 @@ export function convertRecordingMetadataToGameEvents(
         source: importantEvent.source,
         target: importantEvent.target,
         targetKind: importantEvent.targetKind,
+        extraSpellName: importantEvent.extraSpellName,
         amount: importantEvent.amount,
         abilityName: importantEvent.abilityName,
         name: normalizeManualMarkerName(importantEvent.name),
@@ -419,6 +513,7 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
     event.type === "death" ||
     event.type === "manual" ||
     event.type === "interrupt" ||
+    event.type === "dispel" ||
     event.type === "bloodlust" ||
     event.type === "combatRes" ||
     event.type === "defensive" ||
@@ -442,6 +537,7 @@ export function shouldShowGameEvent(
   // These types are useful even when the dest unit is an NPC or the caster themselves.
   if (
     event.type === "interrupt" ||
+    event.type === "dispel" ||
     event.type === "bloodlust" ||
     event.type === "combatRes" ||
     event.type === "defensive" ||
@@ -485,6 +581,7 @@ export function convertCombatEvent(combatEvent: CombatEvent): GameEvent {
     type,
     source: combatEvent.source,
     target: combatEvent.target,
+    extraSpellName: combatEvent.extraSpellName,
     amount: combatEvent.amount,
     abilityName: combatEvent.abilityName,
     name: normalizeManualMarkerName(combatEvent.name),

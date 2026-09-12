@@ -26,6 +26,7 @@ import { NoteEditorDialog } from "./NoteEditorDialog";
 const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   death: "Death",
   interrupt: "Interrupt",
+  dispel: "Dispel",
   manual: "Marker",
   kill: "Kill",
   bloodlust: "Bloodlust",
@@ -39,9 +40,19 @@ const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   note: "Note",
 };
 
+function formatSourceTargetDetail(event: GameEvent): string {
+  const actors = `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+  if (!event.extraSpellName) {
+    return actors;
+  }
+
+  return `${actors} (${event.extraSpellName})`;
+}
+
 const EVENT_LIST_FILTER_TYPES: GameEventType[] = [
   "death",
   "interrupt",
+  "dispel",
   "manual",
   "bloodlust",
   "combatRes",
@@ -59,8 +70,8 @@ function getEventListDetail(event: GameEvent): string {
     return formatUnitName(event.target);
   }
 
-  if (event.type === "interrupt") {
-    return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+  if (event.type === "interrupt" || event.type === "dispel") {
+    return formatSourceTargetDetail(event);
   }
 
   if (event.type === "manual") {
@@ -354,12 +365,12 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, crowd control, boss abilities, defensives,
-            hits, heals, markers, and notes.
+            Load a recording to see deaths, interrupts, dispels, crowd control, boss abilities,
+            defensives, hits, heals, markers, and notes.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, bloodlust, combat res, crowd control, boss abilities,
+            No deaths, interrupts, dispels, bloodlust, combat res, crowd control, boss abilities,
             defensives, hits, heals, markers, or notes in this recording. Import a combat log from
             the player controls to add them.
           </p>

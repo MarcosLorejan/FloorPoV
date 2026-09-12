@@ -13,6 +13,7 @@ const DEFAULT_EVENT_TYPE_VISIBILITY: Record<GameEventType, boolean> = {
   death: true,
   manual: true,
   interrupt: true,
+  dispel: true,
   bloodlust: true,
   combatRes: true,
   defensive: true,

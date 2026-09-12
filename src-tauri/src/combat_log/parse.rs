@@ -8,6 +8,7 @@ pub(crate) struct ImportantCombatEvent {
     pub(crate) source: Option<String>,
     pub(crate) target: Option<String>,
     pub(crate) target_kind: Option<String>,
+    pub(crate) ability_name: Option<String>,
     pub(crate) zone_name: Option<String>,
     pub(crate) encounter_name: Option<String>,
     pub(crate) encounter_category: Option<String>,
@@ -35,11 +36,17 @@ impl ImportantCombatEvent {
     ) -> Option<super::CombatEvent> {
         let timestamp = recording_elapsed_seconds?;
         match self.event_type.as_str() {
-            "PARTY_KILL" | "UNIT_DIED" | "BLOODLUST" | "COMBAT_RES" => Some(super::CombatEvent {
+            "PARTY_KILL"
+            | "UNIT_DIED"
+            | "BLOODLUST"
+            | "COMBAT_RES"
+            | "CROWD_CONTROL"
+            | "CROWD_CONTROL_BREAK" => Some(super::CombatEvent {
                 timestamp,
                 event_type: self.event_type,
                 source: self.source,
                 target: self.target,
+                ability_name: self.ability_name,
             }),
             _ => None,
         }
@@ -85,7 +92,11 @@ pub(crate) fn parse_important_combat_event(
     update_debug_context(context, &parsed_line);
 
     if let Some(zone_name) = extract_zone_name(&parsed_line.raw_event_type, &parsed_line.fields) {
-        context.current_zone = Some(zone_name);
+        // MAP_CHANGE/ZONE_CHANGED fire for dungeon floors (Augurs' Terrace inside Murder
+        // Row). Keep the CHALLENGE_MODE_START dungeon name as the M+ zone.
+        if parsed_line.raw_event_type == "CHALLENGE_MODE_START" || !context.in_challenge_mode {
+            context.current_zone = Some(zone_name);
+        }
     }
 
     let (encounter_name, encounter_category) =
@@ -106,6 +117,7 @@ pub(crate) fn parse_important_combat_event(
         source: parsed_line.source,
         target: parsed_line.target,
         target_kind: parsed_line.target_kind,
+        ability_name: parsed_line.ability_name,
         zone_name: context.current_zone.clone(),
         encounter_name,
         encounter_category,
@@ -168,6 +180,7 @@ pub(crate) fn parse_important_log_line(
         source: parsed_event.source,
         target: parsed_event.target,
         target_kind: parsed_event.target_kind,
+        ability_name: parsed_event.ability_name,
         zone_name: parsed_event.zone_name,
         encounter_name: parsed_event.encounter_name,
         encounter_category: parsed_event.encounter_category,
@@ -196,6 +209,7 @@ struct ParsedLogLine {
     source: Option<String>,
     target: Option<String>,
     target_kind: Option<String>,
+    ability_name: Option<String>,
     fields: Vec<String>,
 }
 
@@ -221,6 +235,11 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
     let dest_flags = remaining_fields.get(6).map(|value| value.as_str());
     let source_kind = classify_unit_type(source_flags, source_guid).map(str::to_string);
     let target_kind = classify_unit_type(dest_flags, dest_guid).map(str::to_string);
+    let ability_name = if is_crowd_control_event_type(normalized_event_type) {
+        extract_spell_name(&remaining_fields)
+    } else {
+        None
+    };
 
     Some(ParsedLogLine {
         raw_event_type: raw_event_type.to_string(),
@@ -229,6 +248,7 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
         source: normalize_entity_name(source_name, source_kind.as_deref()),
         target: normalize_entity_name(dest_name, target_kind.as_deref()),
         target_kind,
+        ability_name,
         fields: remaining_fields,
     })
 }
@@ -241,6 +261,9 @@ fn normalize_important_event_type(event_type: &str, fields: &[String]) -> Option
         "SPELL_DISPEL" => Some("SPELL_DISPEL"),
         "SPELL_RESURRECT" => Some("COMBAT_RES"),
         "SPELL_CAST_SUCCESS" => classify_cast_success_event(fields),
+        "SPELL_AURA_APPLIED" | "SPELL_AURA_BROKEN" | "SPELL_AURA_BROKEN_SPELL" => {
+            classify_crowd_control_event(event_type, fields)
+        }
         "ENCOUNTER_START" => Some("ENCOUNTER_START"),
         "ENCOUNTER_END" => Some("ENCOUNTER_END"),
         event_type if is_zone_context_event_type(event_type) => Some("ZONE_CONTEXT"),
@@ -263,6 +286,163 @@ fn classify_cast_success_event(fields: &[String]) -> Option<&'static str> {
 
 fn extract_spell_id(fields: &[String]) -> Option<u32> {
     fields.get(8)?.trim_matches('"').parse().ok()
+}
+
+fn extract_spell_name(fields: &[String]) -> Option<String> {
+    normalize_name(fields.get(9).map(|value| value.as_str()))
+}
+
+fn is_crowd_control_event_type(event_type: &str) -> bool {
+    matches!(event_type, "CROWD_CONTROL" | "CROWD_CONTROL_BREAK")
+}
+
+fn classify_crowd_control_event(event_type: &str, fields: &[String]) -> Option<&'static str> {
+    if !is_player_dest(fields) {
+        return None;
+    }
+
+    let spell_id = extract_spell_id(fields)?;
+    if !is_review_worthy_crowd_control_spell_id(spell_id) {
+        return None;
+    }
+
+    if !is_debuff_aura(event_type, fields) {
+        return None;
+    }
+
+    match event_type {
+        "SPELL_AURA_APPLIED" => Some("CROWD_CONTROL"),
+        "SPELL_AURA_BROKEN" | "SPELL_AURA_BROKEN_SPELL" => Some("CROWD_CONTROL_BREAK"),
+        _ => None,
+    }
+}
+
+fn is_player_dest(fields: &[String]) -> bool {
+    let dest_guid = fields.get(4).map(|value| value.as_str());
+    let dest_flags = fields.get(6).map(|value| value.as_str());
+    classify_unit_type(dest_flags, dest_guid) == Some("PLAYER")
+}
+
+fn extract_aura_type<'a>(event_type: &str, fields: &'a [String]) -> Option<&'a str> {
+    let index = match event_type {
+        "SPELL_AURA_BROKEN_SPELL" => 14,
+        _ => 11,
+    };
+
+    fields
+        .get(index)
+        .map(|value| value.trim().trim_matches('"'))
+        .filter(|value| !value.is_empty() && *value != "nil")
+}
+
+fn is_debuff_aura(event_type: &str, fields: &[String]) -> bool {
+    match extract_aura_type(event_type, fields) {
+        Some("DEBUFF") | None => true,
+        Some(_) => false,
+    }
+}
+
+fn is_review_worthy_crowd_control_spell_id(spell_id: u32) -> bool {
+    matches!(
+        spell_id,
+        // Death Knight
+        221562 |   // Asphyxiate
+        108194 |   // Asphyxiate (Unholy)
+        47476 |    // Strangulate
+        47481 |    // Gnaw
+        91797 |    // Monstrous Blow
+        91800 |    // Gnaw (ghoul)
+        204085 |   // Deathchill
+        377048 |   // Absolute Zero
+        // Demon Hunter
+        179057 |   // Chaos Nova
+        211881 |   // Fel Eruption
+        205630 |   // Illidan's Grasp
+        208618 |   // Illidan's Grasp (throw)
+        204490 |   // Sigil of Silence
+        207682 |   // Sigil of Silence (talent)
+        202137 |   // Sigil of Silence (cast)
+        // Druid
+        5211 |     // Mighty Bash
+        22570 |    // Maim
+        203123 |   // Maim (stun aura)
+        163505 |   // Rake (stun)
+        202246 |   // Overrun
+        339 |      // Entangling Roots
+        102359 |   // Mass Entanglement
+        78675 |    // Solar Beam
+        81261 |    // Solar Beam (silence)
+        // Evoker
+        355689 |   // Landslide
+        358385 |   // Landslide (aura)
+        372245 |   // Terror of the Skies
+        // Hunter
+        19577 |    // Intimidation
+        24394 |    // Intimidation (pet stun)
+        117526 |   // Binding Shot
+        162488 |   // Steel Trap
+        162480 |   // Steel Trap (root)
+        190925 |   // Harpoon
+        212638 |   // Tracker's Net
+        // Mage
+        122 |      // Frost Nova
+        33395 |    // Freeze
+        157997 |   // Ice Nova
+        82691 |    // Ring of Frost
+        102051 |   // Frostjaw
+        // Monk
+        119381 |   // Leg Sweep
+        116706 |   // Disable
+        // Paladin
+        853 |      // Hammer of Justice
+        255941 |   // Wake of Ashes
+        // Priest
+        15487 |    // Silence
+        64044 |    // Psychic Horror
+        88625 |    // Holy Word: Chastise
+        200200 |   // Holy Word: Chastise (stun)
+        205369 |   // Mind Bomb
+        226943 |   // Mind Bomb (stun)
+        108920 |   // Void Tendrils
+        114404 |   // Void Tendrils (root)
+        // Rogue
+        1833 |     // Cheap Shot
+        408 |      // Kidney Shot
+        199804 |   // Between the Eyes
+        315341 |   // Between the Eyes (talent)
+        1330 |     // Garrote (silence)
+        // Shaman
+        118345 |   // Capacitor Totem (stun)
+        118905 |   // Static Charge
+        192058 |   // Capacitor Totem
+        204399 |   // Earthfury
+        51485 |    // Earthgrab Totem
+        64695 |    // Earthgrab
+        204437 |   // Lightning Lasso
+        305483 |   // Lightning Lasso (aura)
+        197214 |   // Sundering
+        // Warlock
+        30283 |    // Shadowfury
+        89766 |    // Axe Toss
+        19647 |    // Spell Lock
+        119910 |   // Spell Lock (command)
+        132409 |   // Spell Lock (grimoire)
+        171138 |   // Shadow Lock
+        171140 |   // Shadow Lock (command)
+        115781 |   // Optical Blast
+        119911 |   // Optical Blast (command)
+        22703 |    // Infernal Awakening
+        // Warrior
+        107570 |   // Storm Bolt
+        132169 |   // Storm Bolt (stun)
+        46968 |    // Shockwave
+        132168 |   // Shockwave (stun)
+        376080 |   // Champion's Spear (root)
+        105771 |   // Charge (root)
+        // Mythic+ affixes that lock players down
+        240447 |   // Quaking
+        408556 // Entangling
+    )
 }
 
 fn is_bloodlust_spell_id(spell_id: u32) -> bool {

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect, ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { VIDEO_LOADING_TIMEOUT_MS, VOLUME_MAX, VOLUME_MIN } from "../types/settings";
+import type { CompareSeekMode, CompareVideoSlot } from "../utils/compare-playback";
 
 interface VideoContextType {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -12,6 +13,9 @@ interface VideoContextType {
   playbackRate: number;
   videoSrc: string | null;
   loadedFilePath: string | null;
+  isCompareMode: boolean;
+  compareVideos: [CompareVideoSlot, CompareVideoSlot] | null;
+  compareSeekMode: CompareSeekMode;
   play: () => void;
   pause: () => void;
   togglePlay: () => void;
@@ -20,6 +24,9 @@ interface VideoContextType {
   setPlaybackRate: (rate: number) => void;
   loadVideo: (src: string, filePath: string) => void;
   clearPlayback: () => void;
+  enterCompareMode: (left: CompareVideoSlot, right: CompareVideoSlot) => void;
+  exitCompareMode: () => void;
+  setCompareSeekMode: (mode: CompareSeekMode) => void;
   updateTime: (time: number) => void;
   updateDuration: (duration: number) => void;
   syncIsPlaying: (playing: boolean) => void;
@@ -42,6 +49,17 @@ export function VideoProvider({ children }: { children: ReactNode }) {
   const [playbackRate, setPlaybackRateState] = useState(1);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [loadedFilePath, setLoadedFilePath] = useState<string | null>(null);
+  const [isCompareMode, setIsCompareMode] = useState(false);
+  const [compareVideos, setCompareVideos] = useState<[CompareVideoSlot, CompareVideoSlot] | null>(
+    null,
+  );
+  // Kept outside compare state so the choice survives leaving and re-entering compare mode.
+  const [compareSeekMode, setCompareSeekMode] = useState<CompareSeekMode>("shared");
+
+  const resetCompareMode = useCallback(() => {
+    setIsCompareMode(false);
+    setCompareVideos(null);
+  }, []);
 
   const play = useCallback(() => {
     videoRef.current?.play();
@@ -122,8 +140,38 @@ export function VideoProvider({ children }: { children: ReactNode }) {
     setPlaybackRateState(rate);
   }, []);
 
+  const clearSinglePlayback = useCallback(() => {
+    if (loadingTimeoutRef.current !== null) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+
+    const videoElement = videoRef.current;
+    if (videoElement) {
+      videoElement.pause();
+      videoElement.removeAttribute("src");
+      videoElement.load();
+    }
+
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+
+    videoSrcRef.current = null;
+    loadedFilePathRef.current = null;
+    setVideoSrc(null);
+    setLoadedFilePath(null);
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
+    setIsVideoLoading(false);
+  }, []);
+
   const loadVideo = useCallback(
     (src: string, filePath: string) => {
+      resetCompareMode();
+
       const currentSrc = videoSrcRef.current;
       loadedFilePathRef.current = filePath;
       setLoadedFilePath(filePath);
@@ -168,36 +216,26 @@ export function VideoProvider({ children }: { children: ReactNode }) {
       setIsPlaying(false);
       setVideoLoading(true);
     },
-    [setVideoLoading]
+    [resetCompareMode, setVideoLoading]
   );
 
+  const enterCompareMode = useCallback(
+    (left: CompareVideoSlot, right: CompareVideoSlot) => {
+      clearSinglePlayback();
+      setCompareVideos([left, right]);
+      setIsCompareMode(true);
+    },
+    [clearSinglePlayback],
+  );
+
+  const exitCompareMode = useCallback(() => {
+    resetCompareMode();
+  }, [resetCompareMode]);
+
   const clearPlayback = useCallback(() => {
-    if (loadingTimeoutRef.current !== null) {
-      clearTimeout(loadingTimeoutRef.current);
-      loadingTimeoutRef.current = null;
-    }
-
-    const videoElement = videoRef.current;
-    if (videoElement) {
-      videoElement.pause();
-      videoElement.removeAttribute("src");
-      videoElement.load();
-    }
-
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = null;
-    }
-
-    videoSrcRef.current = null;
-    loadedFilePathRef.current = null;
-    setVideoSrc(null);
-    setLoadedFilePath(null);
-    setCurrentTime(0);
-    setDuration(0);
-    setIsPlaying(false);
-    setIsVideoLoading(false);
-  }, []);
+    resetCompareMode();
+    clearSinglePlayback();
+  }, [clearSinglePlayback, resetCompareMode]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -252,6 +290,9 @@ export function VideoProvider({ children }: { children: ReactNode }) {
         playbackRate,
         videoSrc,
         loadedFilePath,
+        isCompareMode,
+        compareVideos,
+        compareSeekMode,
         play,
         pause,
         togglePlay,
@@ -260,6 +301,9 @@ export function VideoProvider({ children }: { children: ReactNode }) {
         setPlaybackRate,
         loadVideo,
         clearPlayback,
+        enterCompareMode,
+        exitCompareMode,
+        setCompareSeekMode,
         updateTime,
         updateDuration,
         syncIsPlaying,

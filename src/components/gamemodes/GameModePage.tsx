@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useMarker } from "../../contexts/MarkerContext";
+import { useVideo } from "../../contexts/VideoContext";
 import { useRecordingsList } from "../../hooks/useRecordingsList";
 import { useClearStalePlayback } from "../../hooks/useClearStalePlayback";
 import { RecordingMetadata } from "../../types/events";
@@ -21,6 +22,7 @@ import { formatBytes, formatDate, formatEncounterCategory, formatTime, getEventT
 import { getRecordingDisplayTitle } from "../../utils/recording-title";
 import { GameEvents } from "../events/GameEvents";
 import { PlaybackEventList } from "../events/PlaybackEventList";
+import { CompareVideoPlayer } from "../playback/CompareVideoPlayer";
 import { VideoPlayer } from "../playback/VideoPlayer";
 import { TabControls, type TabControlItem } from "../ui/TabControls";
 import { GameModeRecordingsBrowser } from "./GameModeRecordingsBrowser";
@@ -98,6 +100,7 @@ export function GameModePage({ gameMode }: GameModePageProps) {
   const [isEventsOpen, setIsEventsOpen] = useState(false);
   const metadataRequestPathRef = useRef<string | null>(null);
   const { setEncounters } = useMarker();
+  const { isCompareMode } = useVideo();
   const { recordings, isLoading: isRecordingsLoading, error: recordingsError, loadRecordings, setRecordings } =
     useRecordingsList();
 
@@ -305,9 +308,9 @@ export function GameModePage({ gameMode }: GameModePageProps) {
               >
                 <div className="flex min-h-0 flex-1 overflow-hidden">
                   <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
-                    <VideoPlayer />
+                    {isCompareMode ? <CompareVideoPlayer /> : <VideoPlayer />}
                   </main>
-                  <PlaybackEventList />
+                  {!isCompareMode && <PlaybackEventList />}
                 </div>
                 <GameEvents />
               </div>

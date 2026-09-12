@@ -129,9 +129,22 @@ export function VideoProvider({ children }: { children: ReactNode }) {
       setLoadedFilePath(filePath);
 
       if (src === currentSrc) {
-        if (videoRef.current) {
-          videoRef.current.pause();
-          videoRef.current.currentTime = 0;
+        const videoElement = videoRef.current;
+
+        // Re-selecting a recording that failed to load should retry it rather than
+        // leave the previous failure on screen.
+        if (videoElement?.error) {
+          setCurrentTime(0);
+          setDuration(0);
+          setIsPlaying(false);
+          setVideoLoading(true);
+          videoElement.load();
+          return;
+        }
+
+        if (videoElement) {
+          videoElement.pause();
+          videoElement.currentTime = 0;
         }
         setCurrentTime(0);
         setIsPlaying(false);

@@ -85,6 +85,15 @@ pub async fn start_recording(
     std::fs::create_dir_all(&output_folder)
         .map_err(|error| format!("Failed to create output directory: {error}"))?;
 
+    if let Err(error) =
+        crate::settings::register_recordings_folder_scope(&app_handle, &output_folder)
+    {
+        tracing::warn!(
+            output_folder,
+            "Recording started without playback access to the output folder: {error}"
+        );
+    }
+
     let mut recording_settings = settings;
     let capture_input = window_capture::resolve_capture_input(&recording_settings)?;
     let (width, height) = window_capture::resolve_capture_dimensions(&capture_input);

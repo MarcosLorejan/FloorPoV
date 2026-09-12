@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useMarker } from "../../contexts/MarkerContext";
+import { useRecording } from "../../contexts/RecordingContext";
 import { useVideo } from "../../contexts/VideoContext";
 import { useRecordingsList } from "../../hooks/useRecordingsList";
 import { useClearStalePlayback } from "../../hooks/useClearStalePlayback";
@@ -100,6 +101,7 @@ export function GameModePage({ gameMode }: GameModePageProps) {
   const [isEventsOpen, setIsEventsOpen] = useState(false);
   const metadataRequestPathRef = useRef<string | null>(null);
   const { setEncounters } = useMarker();
+  const { playbackMetadataEpoch } = useRecording();
   const { isCompareMode } = useVideo();
   const { recordings, isLoading: isRecordingsLoading, error: recordingsError, loadRecordings, setRecordings } =
     useRecordingsList();
@@ -169,6 +171,14 @@ export function GameModePage({ gameMode }: GameModePageProps) {
     !isRecordingsLoading && !recordingsError,
     handleStalePlaybackCleared,
   );
+
+  useEffect(() => {
+    if (!selectedRecording || playbackMetadataEpoch === 0) {
+      return;
+    }
+
+    void loadRecordingMetadata(selectedRecording.file_path);
+  }, [loadRecordingMetadata, playbackMetadataEpoch, selectedRecording]);
 
   const sortedEventCounts = useMemo(() => {
     if (!recordingMetadata?.importantEventCounts) {

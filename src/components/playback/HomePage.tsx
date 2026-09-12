@@ -6,6 +6,7 @@ import { useVideo } from "../../contexts/VideoContext";
 import { panelVariants, smoothTransition } from "../../lib/motion";
 import { MEDIA_SECTION_RESIZE_DELTA } from "../../types/settings";
 import { PlaybackEventList } from "../events/PlaybackEventList";
+import { PlayerActionTimelines } from "../events/PlayerActionTimelines";
 import { CompareVideoPlayer } from "./CompareVideoPlayer";
 import { RecordingsList } from "./RecordingsList";
 import { VideoPlayer } from "./VideoPlayer";
@@ -102,7 +103,7 @@ export function HomePage() {
         className="flex w-full shrink-0 overflow-hidden"
         style={{ height: displayedMediaHeight }}
       >
-        <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-neutral-950/70">
+        <main className="theme-on-media flex min-h-0 min-w-0 flex-1 overflow-hidden bg-neutral-950/70">
           {showComparePlayer ? <CompareVideoPlayer /> : <VideoPlayer />}
         </main>
         {showPlaybackWorkspace && !showComparePlayer && <PlaybackEventList />}
@@ -138,6 +139,8 @@ export function HomePage() {
           <div className="h-0.5 w-24 rounded-full bg-white/35" />
         </div>
       )}
+
+      {showPlaybackWorkspace && <PlayerActionTimelines />}
 
       <RecordingsList />
     </motion.div>

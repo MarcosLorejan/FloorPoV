@@ -1,0 +1,4 @@
+chore(combat): merge origin/main after notes and named markers
+
+Keep compact hit and heal amounts next to boss casts, notes, and
+named markers. Killing blows still use overkill >= 0.

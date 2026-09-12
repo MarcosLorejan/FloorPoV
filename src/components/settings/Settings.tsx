@@ -8,8 +8,10 @@ import {
   HardDrive,
   Keyboard,
   Monitor,
+  Moon,
   RefreshCw,
   Settings2,
+  Sun,
   Swords,
   Video,
   Volume2,
@@ -43,6 +45,7 @@ import { SettingsSelect, type SettingsSelectOption } from "./SettingsSelect";
 import { SettingsToggleField } from "./SettingsToggleField";
 import { shallowEqual } from "../../utils/comparison";
 import { formatBytes } from "../../utils/format";
+import { applyAppTheme, type AppTheme } from "../../utils/theme";
 import { AvailableVideoEncoder, CaptureWindowInfo } from "../../types/recording";
 
 const VIDEO_QUALITY_OPTIONS: SettingsSelectOption[] = Object.entries(QUALITY_SETTINGS).map(
@@ -67,6 +70,11 @@ const CAPTURE_SOURCE_OPTIONS: SettingsSelectOption[] = [
 const AUDIO_CAPTURE_MODE_OPTIONS: SettingsSelectOption[] = [
   { value: "wow", label: "WoW only" },
   { value: "desktop", label: "Entire desktop" },
+];
+
+const APP_THEME_OPTIONS: Array<{ value: AppTheme; label: string; icon: typeof Moon }> = [
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "light", label: "Light", icon: Sun },
 ];
 
 const VIDEO_ENCODER_PREFERENCE_VALUES: VideoEncoderPreference[] = [
@@ -95,6 +103,7 @@ const FIELD_IDS = {
   enableAutoUpdate: "settings-enable-auto-update",
   startMinimized: "settings-start-minimized",
   showFullscreenEventsPanel: "settings-show-fullscreen-events-panel",
+  appTheme: "settings-app-theme",
 };
 
 type SettingsTab = "recording" | "combat" | "app";
@@ -201,6 +210,14 @@ export function Settings() {
   useEffect(() => {
     setHasChanges(!shallowEqual(formData, settings));
   }, [formData, settings]);
+
+  useEffect(() => {
+    applyAppTheme(formData.appTheme, document.documentElement);
+
+    return () => {
+      applyAppTheme(settings.appTheme, document.documentElement);
+    };
+  }, [formData.appTheme, settings.appTheme]);
 
   const loadCaptureWindows = useCallback(async () => {
     setIsLoadingCaptureWindows(true);
@@ -800,6 +817,41 @@ export function Settings() {
             <>
           <SettingsSection title="App" icon={<AppWindow className="h-4 w-4" />}>
             <div className="space-y-4">
+              <div>
+                <p id={FIELD_IDS.appTheme} className="mb-2 text-sm text-neutral-300">
+                  Theme
+                </p>
+                <div
+                  role="radiogroup"
+                  aria-labelledby={FIELD_IDS.appTheme}
+                  className="inline-flex rounded-sm border border-white/20 bg-black/20 p-0.5"
+                >
+                  {APP_THEME_OPTIONS.map(({ value, label, icon: Icon }) => {
+                    const isSelected = formData.appTheme === value;
+
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        role="radio"
+                        aria-checked={isSelected}
+                        onClick={() => setFormData({ ...formData, appTheme: value })}
+                        className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 ${
+                          isSelected
+                            ? "bg-white/12 text-neutral-100"
+                            : "text-neutral-400 hover:bg-white/6 hover:text-neutral-200"
+                        }`}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-xs text-neutral-400">
+                  Dark is the default. Light retints surfaces and text across the app.
+                </p>
+              </div>
               <SettingsToggleField
                 id={FIELD_IDS.startMinimized}
                 checked={formData.startMinimized}

@@ -1,4 +1,4 @@
-import { GameEvent, GameEventType } from "../../types/events";
+import { GameEvent, GameEventType, getManualMarkerLabel } from "../../types/events";
 import { formatCompactAmount, formatTime } from "../../utils/format";
 import { AnimatedTooltip } from "../ui/AnimatedTooltip";
 
@@ -16,8 +16,10 @@ const EVENT_LABELS: Record<GameEventType, string> = {
   combatRes: "Combat Res",
   bigHit: "Big Hit",
   heal: "Heal",
+  bossAbility: "Boss Ability",
   crowdControl: "Crowd Control",
   crowdControlBreak: "Crowd Control Break",
+  note: "Note",
 };
 
 function getEventDescription(event: GameEvent): string {
@@ -49,6 +51,10 @@ function getEventDescription(event: GameEvent): string {
     return `${event.source ?? "Unknown"} healed ${event.target ?? "Unknown"}`;
   }
 
+  if (event.type === "bossAbility") {
+    return `${event.source ?? "Unknown"} cast ${event.abilityName ?? "Unknown"}`;
+  }
+
   if (event.type === "crowdControl") {
     return `${event.source ?? "Unknown"} landed ${event.abilityName ?? "crowd control"} on ${
       event.target ?? "Unknown"
@@ -61,6 +67,15 @@ function getEventDescription(event: GameEvent): string {
     }`;
   }
 
+  if (event.type === "note") {
+    const noteText = event.note ?? "Review note";
+    if (noteText.length <= 80) {
+      return noteText;
+    }
+
+    return `${noteText.slice(0, 77)}...`;
+  }
+
   return `${event.source ?? "Unknown"} killed ${event.target ?? "Unknown"}`;
 }
 
@@ -69,7 +84,9 @@ export function EventTooltip({ event, x }: EventTooltipProps) {
 
   return (
     <AnimatedTooltip x={x}>
-      <div className="font-medium">{EVENT_LABELS[event.type]}</div>
+      <div className="font-medium">
+        {event.type === "manual" ? getManualMarkerLabel(event) : EVENT_LABELS[event.type]}
+      </div>
       <div className="text-neutral-400">{getEventDescription(event)}</div>
       {compactAmount ? (
         <div className={event.type === "heal" ? "text-teal-300" : "text-orange-300"}>

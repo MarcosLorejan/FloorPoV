@@ -38,6 +38,7 @@ pub(crate) struct RecordingMetadataAccumulator {
     recording_elapsed_origin_seconds: f64,
     session_log_origin_seconds: Option<f64>,
     last_damage_by_dest: HashMap<String, u64>,
+    persist_all_high_volume_events: bool,
 }
 
 impl RecordingMetadataAccumulator {
@@ -80,9 +81,22 @@ impl RecordingMetadataAccumulator {
         Some(parsed_event)
     }
 
+    pub(crate) fn begin_import_session(&mut self) {
+        self.reset_recording_data();
+        self.recording_active = true;
+        self.recording_elapsed_origin_seconds = 0.0;
+        self.persist_all_high_volume_events = true;
+        self.recording_players = self.context_players.clone();
+        self.zone_name = self.context.current_zone.clone();
+        self.latest_encounter_name = self.context.current_encounter.clone();
+        self.latest_encounter_category = self.context.current_encounter_category.clone();
+        self.key_level = self.context.current_key_level;
+    }
+
     pub(crate) fn begin_recording_session(&mut self, elapsed_seconds: f64) {
         self.reset_recording_data();
         self.recording_active = true;
+        self.persist_all_high_volume_events = false;
         self.recording_elapsed_origin_seconds = elapsed_seconds;
         self.recording_players = self.context_players.clone();
         self.zone_name = self.context.current_zone.clone();
@@ -138,12 +152,14 @@ impl RecordingMetadataAccumulator {
                 encounter_name: self.latest_encounter_name.clone(),
                 encounter_category: self.latest_encounter_category.clone(),
                 key_level: self.key_level,
+                name: None,
             });
         }
     }
 
     pub(crate) fn finish_recording_session(&mut self) {
         self.recording_active = false;
+        self.persist_all_high_volume_events = false;
     }
 
     pub(crate) fn is_recording_session_active(&self) -> bool {
@@ -321,6 +337,7 @@ impl RecordingMetadataAccumulator {
             encounter_name: event.encounter_name.clone(),
             encounter_category: event.encounter_category.clone(),
             key_level: event.key_level,
+            name: None,
         });
     }
 
@@ -380,6 +397,20 @@ impl RecordingMetadataAccumulator {
                 .or_else(|| self.context.current_encounter_category.clone()),
             key_level: self.key_level.or(self.context.current_key_level),
         }
+    }
+
+    pub(crate) fn set_manual_marker_name(
+        &mut self,
+        timestamp_seconds: f64,
+        occurrence: usize,
+        name: Option<String>,
+    ) -> bool {
+        crate::recording::metadata::apply_manual_marker_name(
+            &mut self.important_events,
+            timestamp_seconds,
+            occurrence,
+            name,
+        )
     }
 
     fn reset_player_roster(&mut self) {
@@ -486,7 +517,7 @@ impl RecordingMetadataAccumulator {
     }
 
     fn push_event_with_cap(&mut self, event: RecordingImportantEventMetadata) {
-        if is_structural_event_type(&event.event_type) {
+        if is_structural_event_type(&event.event_type) || self.persist_all_high_volume_events {
             self.important_events.push(event);
             return;
         }

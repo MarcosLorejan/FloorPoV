@@ -14,6 +14,7 @@ const DEFAULT_EVENT_TYPE_VISIBILITY: Record<GameEventType, boolean> = {
   interrupt: true,
   bloodlust: true,
   combatRes: true,
+  bossAbility: true,
   crowdControl: true,
   crowdControlBreak: true,
   note: true,

@@ -14,6 +14,7 @@ const EVENT_LABELS: Record<GameEventType, string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  bossAbility: "Boss Ability",
   crowdControl: "Crowd Control",
   crowdControlBreak: "Crowd Control Break",
   note: "Note",
@@ -38,6 +39,10 @@ function getEventDescription(event: GameEvent): string {
 
   if (event.type === "combatRes") {
     return `${event.source ?? "Unknown"} combat ressed ${event.target ?? "Unknown"}`;
+  }
+
+  if (event.type === "bossAbility") {
+    return `${event.source ?? "Unknown"} cast ${event.abilityName ?? "Unknown"}`;
   }
 
   if (event.type === "crowdControl") {

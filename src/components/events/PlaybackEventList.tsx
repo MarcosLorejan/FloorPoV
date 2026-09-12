@@ -25,6 +25,7 @@ const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  bossAbility: "Boss Ability",
   crowdControl: "Crowd Control",
   crowdControlBreak: "CC Break",
   note: "Note",
@@ -36,6 +37,7 @@ const EVENT_LIST_FILTER_TYPES: GameEventType[] = [
   "manual",
   "bloodlust",
   "combatRes",
+  "bossAbility",
   "crowdControl",
   "crowdControlBreak",
   "note",
@@ -60,6 +62,10 @@ function getEventListDetail(event: GameEvent): string {
 
   if (event.type === "combatRes") {
     return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+  }
+
+  if (event.type === "bossAbility") {
+    return `${event.abilityName ?? "Unknown"} · ${formatUnitName(event.source)}`;
   }
 
   if (isCrowdControlEventType(event.type)) {
@@ -176,12 +182,13 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, crowd control, markers, and notes.
+            Load a recording to see deaths, interrupts, crowd control, boss abilities, markers, and
+            notes.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, bloodlust, combat res, crowd control, markers, or notes in this
-            recording. Import a combat log from the player controls to add them.
+            No deaths, interrupts, bloodlust, combat res, crowd control, boss abilities, markers, or
+            notes in this recording. Import a combat log from the player controls to add them.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>

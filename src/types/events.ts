@@ -5,6 +5,7 @@ export type GameEventType =
   | "interrupt"
   | "bloodlust"
   | "combatRes"
+  | "bossAbility"
   | "crowdControl"
   | "crowdControlBreak"
   | "note";
@@ -134,6 +135,7 @@ const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "SPELL_INTERRUPT",
   "BLOODLUST",
   "COMBAT_RES",
+  "BOSS_ABILITY",
   "CROWD_CONTROL",
   "CROWD_CONTROL_BREAK",
 ]);
@@ -182,6 +184,10 @@ function mapEventTypeToGameEventType(eventType: string): GameEventType {
     return "combatRes";
   }
 
+  if (eventType === "BOSS_ABILITY") {
+    return "bossAbility";
+  }
+
   if (eventType === "CROWD_CONTROL") {
     return "crowdControl";
   }
@@ -226,7 +232,12 @@ const DUPLICATE_EVENT_WINDOW_SECONDS = 2;
 const CROWD_CONTROL_DUPLICATE_WINDOW_SECONDS = 3;
 
 function isDeduplicatedEventType(type: GameEventType): boolean {
-  return type === "bloodlust" || type === "combatRes" || isCrowdControlEventType(type);
+  return (
+    type === "bloodlust" ||
+    type === "combatRes" ||
+    type === "bossAbility" ||
+    isCrowdControlEventType(type)
+  );
 }
 
 function isDuplicateOfEvent(existingEvent: GameEvent, event: GameEvent): boolean {
@@ -239,6 +250,14 @@ function isDuplicateOfEvent(existingEvent: GameEvent, event: GameEvent): boolean
       Math.abs(existingEvent.timestamp - event.timestamp) <
         CROWD_CONTROL_DUPLICATE_WINDOW_SECONDS &&
       existingEvent.target === event.target &&
+      existingEvent.abilityName === event.abilityName
+    );
+  }
+
+  if (event.type === "bossAbility") {
+    return (
+      Math.abs(existingEvent.timestamp - event.timestamp) < DUPLICATE_EVENT_WINDOW_SECONDS &&
+      existingEvent.source === event.source &&
       existingEvent.abilityName === event.abilityName
     );
   }
@@ -322,6 +341,7 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
     event.type === "interrupt" ||
     event.type === "bloodlust" ||
     event.type === "combatRes" ||
+    event.type === "bossAbility" ||
     isCrowdControlEventType(event.type) ||
     event.type === "note"
   );
@@ -341,6 +361,7 @@ export function shouldShowGameEvent(
     event.type === "interrupt" ||
     event.type === "bloodlust" ||
     event.type === "combatRes" ||
+    event.type === "bossAbility" ||
     event.type === "note"
   ) {
     return true;

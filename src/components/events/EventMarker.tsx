@@ -4,6 +4,7 @@ import {
   ShieldOff,
   Skull,
   Snowflake,
+  Sparkles,
   StickyNote,
   Sword,
   Unlock,
@@ -37,6 +38,7 @@ const ICONS: Record<GameEventType, React.ComponentType<{ className?: string }>> 
   interrupt: ShieldOff,
   bloodlust: Zap,
   combatRes: Heart,
+  bossAbility: Sparkles,
   crowdControl: Snowflake,
   crowdControlBreak: Unlock,
   note: StickyNote,
@@ -66,6 +68,10 @@ const MARKER_CLASS_NAMES: Record<GameEventType, Record<EventMarkerVariant, strin
   combatRes: {
     compact: "rounded-full bg-emerald-400 text-emerald-950",
     detailed: "rounded-full border border-emerald-200/40 bg-emerald-400 text-emerald-950",
+  },
+  bossAbility: {
+    compact: "rounded-full bg-fuchsia-400 text-fuchsia-950",
+    detailed: "rounded-full border border-fuchsia-200/40 bg-fuchsia-400 text-fuchsia-950",
   },
   crowdControl: {
     compact: "rounded-full bg-violet-400 text-violet-950",
@@ -100,6 +106,7 @@ const EVENT_TYPE_FILTER_LABELS: Record<GameEventType, string> = {
   kill: "Kills",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  bossAbility: "Boss abilities",
   crowdControl: "Crowd Control",
   crowdControlBreak: "CC Breaks",
   note: "Notes",

@@ -97,6 +97,7 @@ export function VideoPlayer() {
   const [seekBarTooltipX, setSeekBarTooltipX] = useState(0);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [hoverPreview, setHoverPreview] = useState<{ time: number; x: number } | null>(null);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   const showVideo = Boolean(videoSrc) && !isRecording;
   const canShowFullscreenEvents = isImmersiveMode && showVideo && settings.showFullscreenEventsPanel;
@@ -325,6 +326,7 @@ export function VideoPlayer() {
   }, [isImmersiveMode, showVideo, syncIsPlaying, videoRef]);
 
   useEffect(() => {
+    setPlaybackError(null);
     if (!videoSrc) {
       setVideoNativeSize({ width: 0, height: 0 });
     }
@@ -583,6 +585,7 @@ export function VideoPlayer() {
                 readyState: event.currentTarget.readyState,
                 src: videoSrc,
               });
+              setPlaybackError("This recording could not be played.");
             }}
             onTimeUpdate={(e) => updateTime(e.currentTarget.currentTime)}
             onLoadedMetadata={(e) => {
@@ -599,6 +602,16 @@ export function VideoPlayer() {
               syncIsPlaying(false);
             }}
           />
+        </div>
+      )}
+
+      {showVideo && playbackError && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-neutral-950/80 px-6 text-center">
+          <AlertTriangle className="h-5 w-5 text-amber-200" />
+          <p className="text-sm font-medium text-neutral-100">{playbackError}</p>
+          <p className="text-xs text-neutral-400">
+            The file may be unreadable, or the output folder is not allowed for playback.
+          </p>
         </div>
       )}
 

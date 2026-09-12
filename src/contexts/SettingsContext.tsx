@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Store } from '@tauri-apps/plugin-store';
 import { RecordingSettings, DEFAULT_SETTINGS } from '../types/settings';
-import { invoke } from '@tauri-apps/api/core';
+import { allowRecordingsFolderForPlayback } from '../utils/recording-playback';
 
 interface SettingsContextType {
   settings: RecordingSettings;
@@ -94,6 +95,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           await store.save();
         }
 
+        try {
+          await allowRecordingsFolderForPlayback(mergedSettings.outputFolder);
+        } catch (error) {
+          console.error('Failed to allow recordings folder for playback:', error);
+        }
+
         setSettings(mergedSettings);
         
         if (mergedSettings.markerHotkey && mergedSettings.markerHotkey !== 'none') {
@@ -106,6 +113,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       } else {
         const defaultFolder = await invoke<string>('get_default_output_folder');
         const initialSettings = { ...DEFAULT_SETTINGS, outputFolder: defaultFolder };
+        try {
+          await allowRecordingsFolderForPlayback(initialSettings.outputFolder);
+        } catch (error) {
+          console.error('Failed to allow recordings folder for playback:', error);
+        }
         setSettings(initialSettings);
         await store.set('recording-settings', initialSettings);
         await store.set(FORK_IN_APP_UPDATES_KEY, true);
@@ -148,6 +160,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         }
       }
       
+      if (settings.outputFolder !== newSettings.outputFolder) {
+        try {
+          await allowRecordingsFolderForPlayback(newSettings.outputFolder);
+        } catch (error) {
+          console.error('Failed to allow recordings folder for playback:', error);
+        }
+      }
+
       await store.set('recording-settings', newSettings);
       await store.save();
       setSettings(newSettings);

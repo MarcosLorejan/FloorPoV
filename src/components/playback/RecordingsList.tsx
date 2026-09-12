@@ -11,6 +11,7 @@ import { panelVariants, smoothTransition } from '../../lib/motion';
 import { RecordingInfo } from '../../types/recording';
 import { type GameMode } from '../../types/ui';
 import { formatBytes, formatDate } from '../../utils/format';
+import { toPlaybackSource } from '../../utils/recording-playback';
 import { getRecordingDisplayTitle, isRecordingInGameMode } from '../../utils/recording-title';
 import { DeleteConfirmDialog } from '../ui/DeleteConfirmDialog';
 import { useRecordingSelection } from './useRecordingSelection';
@@ -131,7 +132,7 @@ export function RecordingsList({
     try {
       await loadPlaybackMetadata(recording.file_path);
 
-      const recordingSource = convertFileSrc(recording.file_path);
+      const recordingSource = await toPlaybackSource(recording.file_path, settings.outputFolder);
       loadVideo(recordingSource, recording.file_path);
       onRecordingActivate?.(recording);
     } catch (loadError) {
@@ -148,6 +149,7 @@ export function RecordingsList({
     loadVideo,
     loadingRecordingPath,
     onRecordingActivate,
+    settings.outputFolder,
   ]);
 
   const {

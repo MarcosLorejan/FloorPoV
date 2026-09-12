@@ -49,6 +49,14 @@ pub struct RecordingImportantEventMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RecordingNoteMetadata {
+    pub id: String,
+    pub timestamp_seconds: f64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecordingPlayerMetadata {
     pub guid: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,6 +92,8 @@ pub struct RecordingMetadata {
     pub important_events_dropped_count: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub players: Vec<RecordingPlayerMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<RecordingNoteMetadata>,
     pub captured_at_unix: u64,
 }
 
@@ -136,6 +146,7 @@ impl RecordingMetadata {
             important_event_counts: BTreeMap::new(),
             important_events_dropped_count: 0,
             players: Vec::new(),
+            notes: Vec::new(),
             captured_at_unix,
         }
     }
@@ -159,6 +170,18 @@ impl RecordingMetadata {
         self.important_event_counts = snapshot.important_event_counts;
         self.important_events_dropped_count = snapshot.important_events_dropped_count;
         self.players = snapshot.players;
+    }
+
+    pub(crate) fn has_combat_content(&self) -> bool {
+        self.zone_name.is_some()
+            || self.encounter_name.is_some()
+            || self.encounter_category.is_some()
+            || self.key_level.is_some()
+            || !self.encounters.is_empty()
+            || !self.important_events.is_empty()
+            || !self.important_event_counts.is_empty()
+            || self.important_events_dropped_count > 0
+            || !self.players.is_empty()
     }
 
     fn is_mythic_plus(&self) -> bool {
@@ -284,6 +307,28 @@ pub(crate) fn update_manual_marker_name_in_sidecar(
     Ok(())
 }
 
+pub(crate) fn metadata_sidecar_backup_path(recording_path: &Path) -> PathBuf {
+    recording_path.with_extension("meta.json.bak")
+}
+
+pub(crate) fn backup_recording_metadata(recording_path: &Path) -> Result<Option<PathBuf>, String> {
+    let sidecar_path = metadata_sidecar_path(recording_path);
+    if !sidecar_path.exists() {
+        return Ok(None);
+    }
+
+    let backup_path = metadata_sidecar_backup_path(recording_path);
+    std::fs::copy(&sidecar_path, &backup_path).map_err(|error| {
+        format!(
+            "Failed to back up recording metadata '{}' to '{}': {error}",
+            sidecar_path.display(),
+            backup_path.display()
+        )
+    })?;
+
+    Ok(Some(backup_path))
+}
+
 pub(crate) fn read_recording_metadata(
     recording_path: &Path,
 ) -> Result<Option<RecordingMetadata>, String> {
@@ -365,6 +410,16 @@ pub(crate) fn write_recording_metadata(
 
 pub(crate) fn delete_recording_metadata(recording_path: &Path) -> Result<(), String> {
     let sidecar_path = metadata_sidecar_path(recording_path);
+    let backup_path = metadata_sidecar_backup_path(recording_path);
+    if backup_path.exists() {
+        if let Err(error) = std::fs::remove_file(&backup_path) {
+            tracing::warn!(
+                backup_path = %backup_path.display(),
+                "Failed to delete recording metadata backup: {error}"
+            );
+        }
+    }
+
     match std::fs::remove_file(&sidecar_path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
@@ -544,14 +599,145 @@ fn temporary_sidecar_path(sidecar_path: &Path) -> PathBuf {
     sidecar_path.with_file_name(format!("{file_name}.tmp"))
 }
 
+const MAX_NOTE_TEXT_CHARS: usize = 2000;
+
+fn require_mp4_recording_path(recording_path: &Path) -> Result<(), String> {
+    if recording_path.extension().and_then(|value| value.to_str()) != Some("mp4") {
+        return Err("Only .mp4 recordings are supported".to_string());
+    }
+
+    if !recording_path.is_file() {
+        return Err("Recording file does not exist".to_string());
+    }
+
+    Ok(())
+}
+
+pub(crate) fn normalize_note_text(text: &str) -> Result<String, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("Note text cannot be empty".to_string());
+    }
+
+    if trimmed.chars().count() > MAX_NOTE_TEXT_CHARS {
+        return Err(format!(
+            "Note text cannot exceed {MAX_NOTE_TEXT_CHARS} characters"
+        ));
+    }
+
+    Ok(trimmed.to_string())
+}
+
+fn generate_note_id() -> String {
+    let timestamp_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    format!("note-{timestamp_nanos}")
+}
+
+fn normalize_note_id(note_id: Option<String>) -> Result<String, String> {
+    let Some(note_id) = note_id else {
+        return Ok(generate_note_id());
+    };
+
+    let trimmed = note_id.trim();
+    if trimmed.is_empty() {
+        return Ok(generate_note_id());
+    }
+
+    if trimmed.len() > 80 {
+        return Err("Note id is too long".to_string());
+    }
+
+    if !trimmed
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || character == '-' || character == '_')
+    {
+        return Err("Note id contains invalid characters".to_string());
+    }
+
+    Ok(trimmed.to_string())
+}
+
+fn sort_notes_by_timestamp(notes: &mut [RecordingNoteMetadata]) {
+    notes.sort_by(|left, right| {
+        left.timestamp_seconds
+            .partial_cmp(&right.timestamp_seconds)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+}
+
+pub(crate) fn upsert_recording_note(
+    recording_path: &Path,
+    note_id: Option<String>,
+    timestamp_seconds: f64,
+    text: &str,
+) -> Result<RecordingNoteMetadata, String> {
+    require_mp4_recording_path(recording_path)?;
+
+    if !timestamp_seconds.is_finite() || timestamp_seconds < 0.0 {
+        return Err("Note timestamp must be a finite non-negative number".to_string());
+    }
+
+    let normalized_text = normalize_note_text(text)?;
+    let normalized_id = normalize_note_id(note_id)?;
+    let mut metadata = read_recording_metadata(recording_path)?
+        .unwrap_or_else(|| RecordingMetadata::new(recording_path));
+
+    let saved_note = if let Some(existing_note) = metadata
+        .notes
+        .iter_mut()
+        .find(|note| note.id == normalized_id)
+    {
+        existing_note.timestamp_seconds = timestamp_seconds;
+        existing_note.text = normalized_text;
+        existing_note.clone()
+    } else {
+        let created_note = RecordingNoteMetadata {
+            id: normalized_id,
+            timestamp_seconds,
+            text: normalized_text,
+        };
+        metadata.notes.push(created_note.clone());
+        created_note
+    };
+
+    sort_notes_by_timestamp(&mut metadata.notes);
+    write_recording_metadata(recording_path, &metadata)?;
+    Ok(saved_note)
+}
+
+pub(crate) fn delete_recording_note(recording_path: &Path, note_id: &str) -> Result<(), String> {
+    require_mp4_recording_path(recording_path)?;
+
+    let trimmed_id = note_id.trim();
+    if trimmed_id.is_empty() {
+        return Err("Note id cannot be empty".to_string());
+    }
+
+    let mut metadata = read_recording_metadata(recording_path)?
+        .ok_or_else(|| "Recording metadata does not exist".to_string())?;
+    let Some(note_index) = metadata.notes.iter().position(|note| note.id == trimmed_id) else {
+        return Err("Note not found".to_string());
+    };
+
+    metadata.notes.remove(note_index);
+    write_recording_metadata(recording_path, &metadata)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_manual_marker_name, delete_recording_metadata, library_filename_stem,
-        metadata_sidecar_path, normalize_manual_marker_name, read_recording_metadata,
+        apply_manual_marker_name, delete_recording_metadata, delete_recording_note,
+        library_filename_stem, metadata_sidecar_backup_path, metadata_sidecar_path,
+        normalize_manual_marker_name, normalize_note_text, read_recording_metadata,
         rename_finalized_recording_if_named, slugify_library_name, timestamp_label_from_stem,
-        update_manual_marker_name_in_sidecar, write_recording_metadata,
-        RecordingImportantEventMetadata, RecordingMetadata, MANUAL_MARKER_NAME_MAX_CHARS,
+        update_manual_marker_name_in_sidecar, upsert_recording_note, write_recording_metadata,
+        RecordingImportantEventMetadata, RecordingMetadata, RecordingMetadataSnapshot,
+        MANUAL_MARKER_NAME_MAX_CHARS,
     };
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -575,6 +761,10 @@ mod tests {
         assert_eq!(
             sidecar_path.to_string_lossy(),
             r"C:\Recordings\capture.meta.json"
+        );
+        assert_eq!(
+            metadata_sidecar_backup_path(recording_path).to_string_lossy(),
+            r"C:\Recordings\capture.meta.json.bak"
         );
     }
 
@@ -848,6 +1038,7 @@ mod tests {
             source: None,
             target: None,
             target_kind: None,
+            ability_name: None,
             zone_name: None,
             encounter_name: None,
             encounter_category: None,
@@ -886,6 +1077,7 @@ mod tests {
                 source: None,
                 target: Some("PlayerOne".to_string()),
                 target_kind: Some("PLAYER".to_string()),
+                ability_name: None,
                 zone_name: None,
                 encounter_name: None,
                 encounter_category: None,
@@ -1019,5 +1211,87 @@ mod tests {
         std::fs::remove_file(&recording_path).expect("Failed to remove test recording file");
         std::fs::remove_dir_all(&temp_directory)
             .expect("Failed to remove temporary metadata test directory");
+    }
+
+    #[test]
+    fn normalizes_and_rejects_note_text() {
+        assert_eq!(
+            normalize_note_text("  hold the soak  ").as_deref(),
+            Ok("hold the soak")
+        );
+        assert!(normalize_note_text("   ").is_err());
+        assert!(normalize_note_text(&"n".repeat(2001)).is_err());
+    }
+
+    #[test]
+    fn adds_edits_and_deletes_notes_in_sidecar() {
+        let temp_directory = unique_temp_directory();
+        std::fs::create_dir_all(&temp_directory)
+            .expect("Failed to create temporary notes test directory");
+
+        let recording_path = temp_directory.join("screen_recording_20260911_220512.mp4");
+        std::fs::write(&recording_path, b"video")
+            .expect("Failed to create test recording for notes");
+
+        let created_note = upsert_recording_note(&recording_path, None, 12.5, "  check the pull  ")
+            .expect("Expected note create to succeed");
+        assert_eq!(created_note.text, "check the pull");
+        assert_eq!(created_note.timestamp_seconds, 12.5);
+        assert!(created_note.id.starts_with("note-"));
+
+        let updated_note = upsert_recording_note(
+            &recording_path,
+            Some(created_note.id.clone()),
+            14.0,
+            "watch the frontal",
+        )
+        .expect("Expected note update to succeed");
+        assert_eq!(updated_note.id, created_note.id);
+        assert_eq!(updated_note.text, "watch the frontal");
+        assert_eq!(updated_note.timestamp_seconds, 14.0);
+
+        let loaded_metadata = read_recording_metadata(&recording_path)
+            .expect("Expected metadata read to succeed")
+            .expect("Expected metadata sidecar to exist");
+        assert_eq!(loaded_metadata.notes.len(), 1);
+        assert_eq!(loaded_metadata.notes[0].text, "watch the frontal");
+
+        delete_recording_note(&recording_path, &created_note.id)
+            .expect("Expected note delete to succeed");
+        let after_delete = read_recording_metadata(&recording_path)
+            .expect("Expected metadata read to succeed")
+            .expect("Expected metadata sidecar to exist");
+        assert!(after_delete.notes.is_empty());
+
+        delete_recording_metadata(&recording_path).expect("Expected metadata delete to succeed");
+        std::fs::remove_file(&recording_path).expect("Failed to remove test recording");
+        std::fs::remove_dir_all(&temp_directory)
+            .expect("Failed to remove temporary notes test directory");
+    }
+
+    #[test]
+    fn preserves_notes_when_applying_combat_log_snapshot() {
+        let mut metadata = RecordingMetadata::new(Path::new("notes-preserve.mp4"));
+        metadata.notes.push(super::RecordingNoteMetadata {
+            id: "note-keep".to_string(),
+            timestamp_seconds: 8.0,
+            text: "keep this review note".to_string(),
+        });
+
+        metadata.apply_combat_log_snapshot(RecordingMetadataSnapshot {
+            zone_name: Some("Voidscar Arena".to_string()),
+            encounter_name: None,
+            encounter_category: Some("mythicPlus".to_string()),
+            key_level: Some(14),
+            encounters: Vec::new(),
+            important_events: Vec::new(),
+            important_event_counts: Default::default(),
+            important_events_dropped_count: 0,
+            players: Vec::new(),
+        });
+
+        assert_eq!(metadata.notes.len(), 1);
+        assert_eq!(metadata.notes[0].id, "note-keep");
+        assert_eq!(metadata.zone_name.as_deref(), Some("Voidscar Arena"));
     }
 }

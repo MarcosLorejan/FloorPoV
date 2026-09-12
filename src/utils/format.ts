@@ -59,6 +59,8 @@ export function getEventTypeLabel(eventType: string): string {
       return "Bloodlust";
     case "COMBAT_RES":
       return "Combat Res";
+    case "BOSS_ABILITY":
+      return "Boss Ability";
     case "CROWD_CONTROL":
       return "Crowd Control";
     case "CROWD_CONTROL_BREAK":
@@ -67,6 +69,8 @@ export function getEventTypeLabel(eventType: string): string {
       return "Dispel";
     case "MANUAL_MARKER":
       return "Manual Marker";
+    case "NOTE":
+      return "Note";
     case "ENCOUNTER_START":
       return "Encounter Start";
     case "ENCOUNTER_END":

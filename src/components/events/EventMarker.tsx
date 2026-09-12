@@ -1,4 +1,15 @@
-import { Flag, Heart, ShieldOff, Skull, Snowflake, Sword, Unlock, Zap } from "lucide-react";
+import {
+  Flag,
+  Heart,
+  ShieldOff,
+  Skull,
+  Snowflake,
+  Sparkles,
+  StickyNote,
+  Sword,
+  Unlock,
+  Zap,
+} from "lucide-react";
 import { useMarker } from "../../contexts/MarkerContext";
 import { GameEventType } from "../../types/events";
 
@@ -27,8 +38,10 @@ const ICONS: Record<GameEventType, React.ComponentType<{ className?: string }>> 
   interrupt: ShieldOff,
   bloodlust: Zap,
   combatRes: Heart,
+  bossAbility: Sparkles,
   crowdControl: Snowflake,
   crowdControlBreak: Unlock,
+  note: StickyNote,
 };
 
 const MARKER_CLASS_NAMES: Record<GameEventType, Record<EventMarkerVariant, string>> = {
@@ -56,6 +69,10 @@ const MARKER_CLASS_NAMES: Record<GameEventType, Record<EventMarkerVariant, strin
     compact: "rounded-full bg-emerald-400 text-emerald-950",
     detailed: "rounded-full border border-emerald-200/40 bg-emerald-400 text-emerald-950",
   },
+  bossAbility: {
+    compact: "rounded-full bg-fuchsia-400 text-fuchsia-950",
+    detailed: "rounded-full border border-fuchsia-200/40 bg-fuchsia-400 text-fuchsia-950",
+  },
   crowdControl: {
     compact: "rounded-full bg-violet-400 text-violet-950",
     detailed: "rounded-full border border-violet-200/40 bg-violet-400 text-violet-950",
@@ -63,6 +80,10 @@ const MARKER_CLASS_NAMES: Record<GameEventType, Record<EventMarkerVariant, strin
   crowdControlBreak: {
     compact: "rounded-full bg-indigo-300 text-indigo-950",
     detailed: "rounded-full border border-indigo-100/45 bg-indigo-300 text-indigo-950",
+  },
+  note: {
+    compact: "rounded-sm bg-violet-400 text-violet-950",
+    detailed: "rounded-sm border border-violet-200/40 bg-violet-400 text-violet-950",
   },
 };
 
@@ -85,8 +106,10 @@ const EVENT_TYPE_FILTER_LABELS: Record<GameEventType, string> = {
   kill: "Kills",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  bossAbility: "Boss abilities",
   crowdControl: "Crowd Control",
   crowdControlBreak: "CC Breaks",
+  note: "Notes",
 };
 
 const DEFAULT_EVENT_TYPE_FILTERS: GameEventType[] = ["death", "interrupt", "manual", "kill"];

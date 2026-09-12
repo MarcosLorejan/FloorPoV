@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   convertCombatEvent,
   convertRecordingMetadataToGameEvents,
+  convertRecordingNoteToGameEvent,
   getManualMarkerLabel,
   isVideoSeekBarEvent,
   MANUAL_MARKER_NAME_MAX_LENGTH,
   manualMarkerOccurrenceIndex,
   normalizeManualMarkerName,
+  recordingMetadataHasCombatContent,
   shouldPromptManualMarkerName,
   shouldShowGameEvent,
   type GameEvent,
@@ -58,9 +60,19 @@ const ALL_EVENT_TYPES_VISIBLE: Record<GameEventType, boolean> = {
   interrupt: true,
   bloodlust: true,
   combatRes: true,
+  bossAbility: true,
   crowdControl: true,
   crowdControlBreak: true,
+  note: true,
 };
+
+function metadata(overrides: Partial<RecordingMetadata> = {}): RecordingMetadata {
+  return {
+    schemaVersion: 2,
+    recordingFile: "screen_recording_20260911_175201.mp4",
+    ...overrides,
+  };
+}
 
 function metadataWithEvents(
   importantEvents: NonNullable<RecordingMetadata["importantEvents"]>,
@@ -108,6 +120,162 @@ describe("getManualMarkerLabel", () => {
   });
 });
 
+describe("boss ability playback mapping", () => {
+  test("maps BOSS_ABILITY onto the seek bar with ability name", () => {
+    const events = convertRecordingMetadataToGameEvents(
+      metadataWithEvents([
+        {
+          timestampSeconds: 42,
+          eventType: "BOSS_ABILITY",
+          source: "Queen Ansurek",
+          target: "PlayerOne",
+          targetKind: "PLAYER",
+          abilityName: "Devour",
+        },
+      ]),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.type).toBe("bossAbility");
+    expect(events[0]?.source).toBe("Queen Ansurek");
+    expect(events[0]?.abilityName).toBe("Devour");
+    expect(events[0]?.target).toBe("PlayerOne");
+    expect(isVideoSeekBarEvent(events[0]!)).toBe(true);
+  });
+
+  test("does not stuff the ability name into target", () => {
+    const events = convertRecordingMetadataToGameEvents(
+      metadataWithEvents([
+        {
+          timestampSeconds: 10,
+          eventType: "BOSS_ABILITY",
+          source: "Sikran",
+          abilityName: "Phase Blades",
+        },
+      ]),
+    );
+
+    expect(events[0]?.abilityName).toBe("Phase Blades");
+    expect(events[0]?.target).toBeUndefined();
+  });
+
+  test("keeps boss abilities visible when NPC events are hidden", () => {
+    const event: GameEvent = {
+      id: "boss-1",
+      timestamp: 8,
+      type: "bossAbility",
+      source: "Queen Ansurek",
+      targetKind: "NPC",
+      abilityName: "Devour",
+    };
+
+    expect(shouldShowGameEvent(event, true, ALL_EVENT_TYPES_VISIBLE)).toBe(true);
+    expect(
+      shouldShowGameEvent(event, true, { ...ALL_EVENT_TYPES_VISIBLE, bossAbility: false }),
+    ).toBe(false);
+  });
+
+  test("collapses nearby duplicate boss abilities from the same source", () => {
+    const events = convertRecordingMetadataToGameEvents(
+      metadataWithEvents([
+        {
+          timestampSeconds: 20,
+          eventType: "BOSS_ABILITY",
+          source: "Queen Ansurek",
+          abilityName: "Devour",
+        },
+        {
+          timestampSeconds: 21.2,
+          eventType: "BOSS_ABILITY",
+          source: "Queen Ansurek",
+          abilityName: "Devour",
+        },
+        {
+          timestampSeconds: 30,
+          eventType: "BOSS_ABILITY",
+          source: "Queen Ansurek",
+          abilityName: "Abyssal Infusion",
+        },
+      ]),
+    );
+
+    expect(events.map((event) => event.abilityName)).toEqual(["Devour", "Abyssal Infusion"]);
+  });
+
+  test("copies ability name from live combat events", () => {
+    const event = convertCombatEvent({
+      timestamp: 15,
+      eventType: "BOSS_ABILITY",
+      source: "Plexus Sentinel",
+      abilityName: "Purifying Light",
+    });
+
+    expect(event.type).toBe("bossAbility");
+    expect(event.abilityName).toBe("Purifying Light");
+    expect(isVideoSeekBarEvent(event)).toBe(true);
+  });
+});
+
+describe("convertRecordingNoteToGameEvent", () => {
+  test("maps a persisted note onto the playback event list", () => {
+    expect(
+      convertRecordingNoteToGameEvent({
+        id: "note-1",
+        timestampSeconds: 42.25,
+        text: "  watch the frontal  ",
+      }),
+    ).toEqual({
+      id: "note-1",
+      timestamp: 42.25,
+      type: "note",
+      note: "watch the frontal",
+    });
+  });
+
+  test("skips notes without usable text or time", () => {
+    expect(
+      convertRecordingNoteToGameEvent({
+        id: "note-2",
+        timestampSeconds: 10,
+        text: "   ",
+      }),
+    ).toBeNull();
+    expect(
+      convertRecordingNoteToGameEvent({
+        id: "note-3",
+        timestampSeconds: Number.NaN,
+        text: "later",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("recordingMetadataHasCombatContent", () => {
+  test("returns false for missing metadata", () => {
+    expect(recordingMetadataHasCombatContent(null)).toBe(false);
+  });
+
+  test("returns false for an empty sidecar", () => {
+    expect(recordingMetadataHasCombatContent(metadata())).toBe(false);
+  });
+
+  test("returns true when combat fields are present", () => {
+    expect(recordingMetadataHasCombatContent(metadata({ zoneName: "Voidscar Arena" }))).toBe(true);
+    expect(
+      recordingMetadataHasCombatContent(
+        metadata({
+          importantEvents: [
+            {
+              timestampSeconds: 12,
+              eventType: "UNIT_DIED",
+            },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("convertRecordingMetadataToGameEvents", () => {
   test("carries the marker name from the sidecar", () => {
     const [marker] = convertRecordingMetadataToGameEvents(metadataWithMarker("  bad soak  "));
@@ -120,6 +288,45 @@ describe("convertRecordingMetadataToGameEvents", () => {
     const [marker] = convertRecordingMetadataToGameEvents(metadataWithMarker());
 
     expect(marker.name).toBeUndefined();
+  });
+
+  test("includes notes without replacing manual markers", () => {
+    const events = convertRecordingMetadataToGameEvents({
+      schemaVersion: 2,
+      recordingFile: "key.mp4",
+      importantEvents: [
+        {
+          timestampSeconds: 8,
+          eventType: "MANUAL_MARKER",
+        },
+      ],
+      notes: [
+        {
+          id: "note-keep",
+          timestampSeconds: 12,
+          text: "missed kick",
+        },
+      ],
+    });
+
+    expect(events).toEqual([
+      {
+        id: "MANUAL_MARKER-8-0",
+        timestamp: 8,
+        type: "manual",
+        source: undefined,
+        target: undefined,
+        targetKind: undefined,
+        abilityName: undefined,
+        name: undefined,
+      },
+      {
+        id: "note-keep",
+        timestamp: 12,
+        type: "note",
+        note: "missed kick",
+      },
+    ]);
   });
 
   test("maps crowd control apply and break with ability names", () => {

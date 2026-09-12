@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ListVideo, Pencil, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Check, ListVideo, Pencil, Trash2, X } from "lucide-react";
 import { useMarker } from "../../contexts/MarkerContext";
 import { useRecording } from "../../contexts/RecordingContext";
 import { useVideo } from "../../contexts/VideoContext";
@@ -17,7 +18,10 @@ import {
   type GameEventType,
 } from "../../types/events";
 import { formatTime, formatUnitName } from "../../utils/format";
+import { deleteRecordingNote, saveRecordingNote } from "../../utils/recording-notes";
+import { DeleteConfirmDialog } from "../ui/DeleteConfirmDialog";
 import { EventMarker, EventTypeFilter } from "./EventMarker";
+import { NoteEditorDialog } from "./NoteEditorDialog";
 
 const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   death: "Death",
@@ -26,8 +30,10 @@ const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  bossAbility: "Boss Ability",
   crowdControl: "Crowd Control",
   crowdControlBreak: "CC Break",
+  note: "Note",
 };
 
 const EVENT_LIST_FILTER_TYPES: GameEventType[] = [
@@ -36,8 +42,10 @@ const EVENT_LIST_FILTER_TYPES: GameEventType[] = [
   "manual",
   "bloodlust",
   "combatRes",
+  "bossAbility",
   "crowdControl",
   "crowdControlBreak",
+  "note",
 ];
 
 function getEventListDetail(event: GameEvent): string {
@@ -61,9 +69,17 @@ function getEventListDetail(event: GameEvent): string {
     return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
   }
 
+  if (event.type === "bossAbility") {
+    return `${event.abilityName ?? "Unknown"} · ${formatUnitName(event.source)}`;
+  }
+
   if (isCrowdControlEventType(event.type)) {
     const actors = `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
     return event.abilityName ? `${actors} · ${event.abilityName}` : actors;
+  }
+
+  if (event.type === "note") {
+    return event.note ?? "Review note";
   }
 
   return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
@@ -153,21 +169,29 @@ interface PlaybackEventListProps {
 }
 
 export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProps) {
-  const { currentTime, seek, videoSrc, loadedFilePath } = useVideo();
+  const { currentTime, loadedFilePath, seek, videoSrc } = useVideo();
   const { isRecording, recordingPath } = useRecording();
   const {
     events,
     filteredEvents,
+    updateEvent,
     updateEventName,
+    removeEvent,
     pendingRenameEventId,
     clearPendingRename,
   } = useMarker();
-  const listEvents = useMemo(() => filteredEvents.filter(isVideoSeekBarEvent), [filteredEvents]);
-  const hasTimelineEvents = events.some(isVideoSeekBarEvent);
-  const isOverlay = variant === "overlay";
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [isSavingName, setIsSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [editingNote, setEditingNote] = useState<GameEvent | null>(null);
+  const [notePendingDelete, setNotePendingDelete] = useState<GameEvent | null>(null);
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [isDeletingNote, setIsDeletingNote] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const listEvents = useMemo(() => filteredEvents.filter(isVideoSeekBarEvent), [filteredEvents]);
+  const hasTimelineEvents = events.some(isVideoSeekBarEvent);
+  const isOverlay = variant === "overlay";
+  const canEditNotes = Boolean(loadedFilePath) && !isRecording;
 
   const activeEventId = useMemo(() => {
     let activeId: string | null = null;
@@ -246,6 +270,48 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
     seek(Math.max(0, timestamp - EVENT_SEEK_OFFSET_SECONDS));
   };
 
+  const handleSaveEditedNote = async (text: string) => {
+    if (!editingNote || !loadedFilePath || isSavingNote) {
+      return;
+    }
+
+    setIsSavingNote(true);
+    setNoteError(null);
+
+    try {
+      const savedNote = await saveRecordingNote({
+        filePath: loadedFilePath,
+        noteId: editingNote.id,
+        timestampSeconds: editingNote.timestamp,
+        text,
+      });
+      updateEvent(editingNote.id, savedNote);
+      setEditingNote(null);
+    } catch (error) {
+      setNoteError(getErrorMessage(error) || "Could not save the note.");
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
+  const handleConfirmDeleteNote = async () => {
+    if (!notePendingDelete || !loadedFilePath || isDeletingNote) {
+      return;
+    }
+
+    setIsDeletingNote(true);
+
+    try {
+      await deleteRecordingNote(loadedFilePath, notePendingDelete.id);
+      removeEvent(notePendingDelete.id);
+      setNotePendingDelete(null);
+    } catch (error) {
+      setNoteError(getErrorMessage(error) || "Could not delete the note.");
+    } finally {
+      setIsDeletingNote(false);
+    }
+  };
+
   return (
     <aside
       className={
@@ -260,15 +326,22 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           Events
         </div>
         <EventTypeFilter types={EVENT_LIST_FILTER_TYPES} />
+        {noteError && !editingNote ? (
+          <p className="text-xs text-rose-300" role="alert">
+            {noteError}
+          </p>
+        ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, crowd control, and markers.
+            Load a recording to see deaths, interrupts, crowd control, boss abilities, markers, and
+            notes.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, crowd control, or markers in this recording.
+            No deaths, interrupts, bloodlust, combat res, crowd control, boss abilities, markers, or
+            notes in this recording. Import a combat log from the player controls to add them.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>
@@ -320,6 +393,32 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
                         <Pencil className="h-3 w-3" />
                       </button>
                     )}
+                    {event.type === "note" && canEditNotes ? (
+                      <div className="flex shrink-0 items-center pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteError(null);
+                            setEditingNote(event);
+                          }}
+                          className="rounded p-1 text-neutral-400 transition-colors hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
+                          aria-label={`Edit note at ${formatTime(event.timestamp)}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteError(null);
+                            setNotePendingDelete(event);
+                          }}
+                          className="rounded p-1 text-neutral-400 transition-colors hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
+                          aria-label={`Delete note at ${formatTime(event.timestamp)}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                   {isEditing && (
                     <ManualMarkerNameForm
@@ -337,6 +436,50 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           </ul>
         )}
       </div>
+      {editingNote
+        ? createPortal(
+            <NoteEditorDialog
+              title="Edit note"
+              timestamp={editingNote.timestamp}
+              initialText={editingNote.note ?? ""}
+              isSaving={isSavingNote}
+              error={noteError}
+              onSave={(text) => {
+                void handleSaveEditedNote(text);
+              }}
+              onCancel={() => {
+                if (isSavingNote) {
+                  return;
+                }
+
+                setEditingNote(null);
+                setNoteError(null);
+              }}
+            />,
+            document.body,
+          )
+        : null}
+      {notePendingDelete
+        ? createPortal(
+            <DeleteConfirmDialog
+              title="Delete note"
+              description={`Delete the note at ${formatTime(notePendingDelete.timestamp)}? This cannot be undone.`}
+              isDeleting={isDeletingNote}
+              confirmLabel="Delete note"
+              onConfirm={() => {
+                void handleConfirmDeleteNote();
+              }}
+              onCancel={() => {
+                if (isDeletingNote) {
+                  return;
+                }
+
+                setNotePendingDelete(null);
+              }}
+            />,
+            document.body,
+          )
+        : null}
     </aside>
   );
 }

@@ -5,8 +5,10 @@ export type GameEventType =
   | "interrupt"
   | "bloodlust"
   | "combatRes"
+  | "bossAbility"
   | "crowdControl"
-  | "crowdControlBreak";
+  | "crowdControlBreak"
+  | "note";
 
 export interface GameEvent {
   id: string;
@@ -17,6 +19,7 @@ export interface GameEvent {
   targetKind?: string;
   abilityName?: string;
   name?: string;
+  note?: string;
 }
 
 export interface RecordingImportantEventMetadata {
@@ -49,6 +52,12 @@ export interface RecordingPlayerMetadata {
   specId?: number;
 }
 
+export interface RecordingNoteMetadata {
+  id: string;
+  timestampSeconds: number;
+  text: string;
+}
+
 export interface RecordingMetadata {
   schemaVersion: number;
   recordingFile: string;
@@ -61,6 +70,7 @@ export interface RecordingMetadata {
   importantEventCounts?: Record<string, number>;
   importantEventsDroppedCount?: number;
   players?: RecordingPlayerMetadata[];
+  notes?: RecordingNoteMetadata[];
 }
 
 export interface CombatEvent {
@@ -107,6 +117,16 @@ export interface ParseCombatLogDebugResult {
   parsedEvents: ParsedCombatEvent[];
   eventCounts: Record<string, number>;
   truncated: boolean;
+}
+
+export type ImportCombatLogMode = "overwrite" | "merge";
+
+export interface ImportCombatLogResult {
+  recordingPath: string;
+  mode: ImportCombatLogMode;
+  importedEventCount: number;
+  totalEventCount: number;
+  backupPath?: string | null;
 }
 
 export const EVENT_SEEK_OFFSET_SECONDS = 5;
@@ -171,6 +191,7 @@ const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "SPELL_INTERRUPT",
   "BLOODLUST",
   "COMBAT_RES",
+  "BOSS_ABILITY",
   "CROWD_CONTROL",
   "CROWD_CONTROL_BREAK",
 ]);
@@ -219,6 +240,10 @@ function mapEventTypeToGameEventType(eventType: string): GameEventType {
     return "combatRes";
   }
 
+  if (eventType === "BOSS_ABILITY") {
+    return "bossAbility";
+  }
+
   if (eventType === "CROWD_CONTROL") {
     return "crowdControl";
   }
@@ -228,6 +253,28 @@ function mapEventTypeToGameEventType(eventType: string): GameEventType {
   }
 
   return "manual";
+}
+
+export function convertRecordingNoteToGameEvent(note: RecordingNoteMetadata): GameEvent | null {
+  if (!note.id.trim()) {
+    return null;
+  }
+
+  if (!Number.isFinite(note.timestampSeconds) || note.timestampSeconds < 0) {
+    return null;
+  }
+
+  const text = note.text.trim();
+  if (!text) {
+    return null;
+  }
+
+  return {
+    id: note.id,
+    timestamp: note.timestampSeconds,
+    type: "note",
+    note: text,
+  };
 }
 
 export function isCrowdControlEventType(type: GameEventType): boolean {
@@ -241,7 +288,12 @@ const DUPLICATE_EVENT_WINDOW_SECONDS = 2;
 const CROWD_CONTROL_DUPLICATE_WINDOW_SECONDS = 3;
 
 function isDeduplicatedEventType(type: GameEventType): boolean {
-  return type === "bloodlust" || type === "combatRes" || isCrowdControlEventType(type);
+  return (
+    type === "bloodlust" ||
+    type === "combatRes" ||
+    type === "bossAbility" ||
+    isCrowdControlEventType(type)
+  );
 }
 
 function isDuplicateOfEvent(existingEvent: GameEvent, event: GameEvent): boolean {
@@ -258,6 +310,14 @@ function isDuplicateOfEvent(existingEvent: GameEvent, event: GameEvent): boolean
     );
   }
 
+  if (event.type === "bossAbility") {
+    return (
+      Math.abs(existingEvent.timestamp - event.timestamp) < DUPLICATE_EVENT_WINDOW_SECONDS &&
+      existingEvent.source === event.source &&
+      existingEvent.abilityName === event.abilityName
+    );
+  }
+
   return (
     Math.abs(existingEvent.timestamp - event.timestamp) < DUPLICATE_EVENT_WINDOW_SECONDS &&
     existingEvent.source === event.source
@@ -267,11 +327,7 @@ function isDuplicateOfEvent(existingEvent: GameEvent, event: GameEvent): boolean
 export function convertRecordingMetadataToGameEvents(
   metadata: RecordingMetadata | null,
 ): GameEvent[] {
-  if (!metadata?.importantEvents?.length) {
-    return [];
-  }
-
-  return metadata.importantEvents
+  const combatEvents = (metadata?.importantEvents ?? [])
     .flatMap((importantEvent, index) => {
       if (!SUPPORTED_PLAYBACK_EVENT_TYPES.has(importantEvent.eventType)) {
         return [];
@@ -309,6 +365,30 @@ export function convertRecordingMetadataToGameEvents(
 
       return uniqueEvents;
     }, []);
+
+  const noteEvents = (metadata?.notes ?? []).flatMap((note) => {
+    const gameEvent = convertRecordingNoteToGameEvent(note);
+    return gameEvent ? [gameEvent] : [];
+  });
+
+  return [...combatEvents, ...noteEvents].sort((left, right) => left.timestamp - right.timestamp);
+}
+
+export function recordingMetadataHasCombatContent(metadata: RecordingMetadata | null): boolean {
+  if (!metadata) {
+    return false;
+  }
+
+  return Boolean(
+    metadata.zoneName ||
+      metadata.encounterName ||
+      metadata.encounterCategory ||
+      metadata.keyLevel ||
+      metadata.encounters?.length ||
+      metadata.importantEvents?.length ||
+      metadata.players?.length ||
+      metadata.importantEventsDroppedCount,
+  );
 }
 
 export function isVideoSeekBarEvent(event: GameEvent): boolean {
@@ -318,7 +398,9 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
     event.type === "interrupt" ||
     event.type === "bloodlust" ||
     event.type === "combatRes" ||
-    isCrowdControlEventType(event.type)
+    event.type === "bossAbility" ||
+    isCrowdControlEventType(event.type) ||
+    event.type === "note"
   );
 }
 
@@ -332,7 +414,13 @@ export function shouldShowGameEvent(
   }
 
   // These types are useful even when the dest unit is an NPC or the caster themselves.
-  if (event.type === "interrupt" || event.type === "bloodlust" || event.type === "combatRes") {
+  if (
+    event.type === "interrupt" ||
+    event.type === "bloodlust" ||
+    event.type === "combatRes" ||
+    event.type === "bossAbility" ||
+    event.type === "note"
+  ) {
     return true;
   }
 

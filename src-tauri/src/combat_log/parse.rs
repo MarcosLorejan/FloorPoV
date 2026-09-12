@@ -1,5 +1,26 @@
 use super::{CombatTriggerEvent, ParsedCombatEvent, EVENT_ENCOUNTER_END, EVENT_ENCOUNTER_START};
 
+pub(crate) const PLAYER_AMOUNT_MARKER_MIN: u64 = 1_000_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CombatAmountKind {
+    Damage,
+    Heal,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CombatAmountSample {
+    pub(crate) dest_guid: String,
+    pub(crate) source: Option<String>,
+    pub(crate) target: Option<String>,
+    pub(crate) target_kind: Option<String>,
+    pub(crate) amount: u64,
+    pub(crate) kind: CombatAmountKind,
+    pub(crate) persist_as_marker: bool,
+    pub(crate) log_timestamp: Option<String>,
+    pub(crate) raw_event_type: String,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ImportantCombatEvent {
     pub(crate) raw_event_type: String,
@@ -8,6 +29,8 @@ pub(crate) struct ImportantCombatEvent {
     pub(crate) source: Option<String>,
     pub(crate) target: Option<String>,
     pub(crate) target_kind: Option<String>,
+    pub(crate) dest_guid: Option<String>,
+    pub(crate) amount: Option<u64>,
     pub(crate) zone_name: Option<String>,
     pub(crate) encounter_name: Option<String>,
     pub(crate) encounter_category: Option<String>,
@@ -35,12 +58,15 @@ impl ImportantCombatEvent {
     ) -> Option<super::CombatEvent> {
         let timestamp = recording_elapsed_seconds?;
         match self.event_type.as_str() {
-            "PARTY_KILL" | "UNIT_DIED" | "BLOODLUST" | "COMBAT_RES" => Some(super::CombatEvent {
-                timestamp,
-                event_type: self.event_type,
-                source: self.source,
-                target: self.target,
-            }),
+            "PARTY_KILL" | "UNIT_DIED" | "BLOODLUST" | "COMBAT_RES" | "BIG_HIT" | "HEAL" => {
+                Some(super::CombatEvent {
+                    timestamp,
+                    event_type: self.event_type,
+                    source: self.source,
+                    target: self.target,
+                    amount: self.amount,
+                })
+            }
             _ => None,
         }
     }
@@ -106,6 +132,8 @@ pub(crate) fn parse_important_combat_event(
         source: parsed_line.source,
         target: parsed_line.target,
         target_kind: parsed_line.target_kind,
+        dest_guid: parsed_line.dest_guid,
+        amount: None,
         zone_name: context.current_zone.clone(),
         encounter_name,
         encounter_category,
@@ -196,6 +224,7 @@ struct ParsedLogLine {
     source: Option<String>,
     target: Option<String>,
     target_kind: Option<String>,
+    dest_guid: Option<String>,
     fields: Vec<String>,
 }
 
@@ -229,8 +258,94 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
         source: normalize_entity_name(source_name, source_kind.as_deref()),
         target: normalize_entity_name(dest_name, target_kind.as_deref()),
         target_kind,
+        dest_guid: normalize_name(dest_guid),
         fields: remaining_fields,
     })
+}
+
+pub(crate) fn parse_combat_amount_sample(line: &str) -> Option<CombatAmountSample> {
+    let trimmed_line = line.trim();
+    if trimmed_line.is_empty() {
+        return None;
+    }
+
+    let mut fields = trimmed_line.split(',');
+    let header = fields.next()?.trim();
+    let raw_event_type = extract_event_type(header)?;
+    let remaining_fields = fields.map(|value| value.trim()).collect::<Vec<&str>>();
+
+    let (kind, amount_index, overkill_index) = amount_field_layout(raw_event_type)?;
+    let amount = parse_combat_amount_field(remaining_fields.get(amount_index).copied())?;
+    if amount == 0 {
+        return None;
+    }
+
+    let dest_guid = normalize_name(remaining_fields.get(4).copied())?;
+    let dest_name = remaining_fields.get(5).copied();
+    let dest_flags = remaining_fields.get(6).copied();
+    let target_kind = classify_unit_type(dest_flags, Some(dest_guid.as_str())).map(str::to_string);
+    if is_guardian_target(target_kind.as_deref()) {
+        return None;
+    }
+
+    let source_guid = remaining_fields.first().copied();
+    let source_name = remaining_fields.get(1).copied();
+    let source_flags = remaining_fields.get(2).copied();
+    let source_kind = classify_unit_type(source_flags, source_guid);
+
+    let overkill = overkill_index
+        .and_then(|index| parse_combat_amount_field(remaining_fields.get(index).copied()))
+        .unwrap_or(0);
+    let persist_as_marker = target_kind.as_deref() == Some("PLAYER")
+        && amount >= PLAYER_AMOUNT_MARKER_MIN
+        && is_amount_marker_event(raw_event_type)
+        && (kind == CombatAmountKind::Heal || overkill == 0);
+
+    Some(CombatAmountSample {
+        dest_guid,
+        source: normalize_entity_name(source_name, source_kind),
+        target: normalize_entity_name(dest_name, target_kind.as_deref()),
+        target_kind,
+        amount,
+        kind,
+        persist_as_marker,
+        log_timestamp: Some(extract_log_timestamp(header)),
+        raw_event_type: raw_event_type.to_string(),
+    })
+}
+
+fn amount_field_layout(raw_event_type: &str) -> Option<(CombatAmountKind, usize, Option<usize>)> {
+    match raw_event_type {
+        "SPELL_DAMAGE"
+        | "SPELL_PERIODIC_DAMAGE"
+        | "RANGE_DAMAGE"
+        | "DAMAGE_SHIELD"
+        | "DAMAGE_SPLIT" => Some((CombatAmountKind::Damage, 11, Some(12))),
+        "SWING_DAMAGE" | "SWING_DAMAGE_LANDED" => Some((CombatAmountKind::Damage, 8, Some(9))),
+        "ENVIRONMENTAL_DAMAGE" => Some((CombatAmountKind::Damage, 9, Some(10))),
+        "SPELL_HEAL" | "SPELL_PERIODIC_HEAL" => Some((CombatAmountKind::Heal, 11, None)),
+        _ => None,
+    }
+}
+
+fn is_amount_marker_event(raw_event_type: &str) -> bool {
+    matches!(
+        raw_event_type,
+        "SPELL_DAMAGE" | "RANGE_DAMAGE" | "SWING_DAMAGE" | "SPELL_HEAL"
+    )
+}
+
+fn parse_combat_amount_field(value: Option<&str>) -> Option<u64> {
+    let raw = value?.trim().trim_matches('"');
+    if raw.is_empty() || raw == "nil" {
+        return None;
+    }
+
+    if let Ok(amount) = raw.parse::<u64>() {
+        return Some(amount);
+    }
+
+    raw.parse::<f64>().ok().map(|amount| amount as u64)
 }
 
 fn normalize_important_event_type(event_type: &str, fields: &[String]) -> Option<&'static str> {

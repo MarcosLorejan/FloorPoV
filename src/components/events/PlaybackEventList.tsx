@@ -8,7 +8,7 @@ import {
   isVideoSeekBarEvent,
   type GameEvent,
 } from "../../types/events";
-import { formatTime, formatUnitName } from "../../utils/format";
+import { formatCompactAmount, formatTime, formatUnitName } from "../../utils/format";
 import { EventMarker, EventTypeFilter } from "./EventMarker";
 
 const EVENT_LIST_LABELS: Record<GameEvent["type"], string> = {
@@ -18,6 +18,8 @@ const EVENT_LIST_LABELS: Record<GameEvent["type"], string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  bigHit: "Big Hit",
+  heal: "Heal",
 };
 
 function getEventListDetail(event: GameEvent): string {
@@ -38,6 +40,10 @@ function getEventListDetail(event: GameEvent): string {
   }
 
   if (event.type === "combatRes") {
+    return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+  }
+
+  if (event.type === "bigHit" || event.type === "heal") {
     return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
   }
 
@@ -88,16 +94,16 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           <ListVideo className="h-3.5 w-3.5 text-neutral-300" />
           Events
         </div>
-        <EventTypeFilter types={["death", "interrupt", "manual", "bloodlust", "combatRes"]} />
+        <EventTypeFilter types={["death", "interrupt", "manual", "bloodlust", "combatRes", "bigHit", "heal"]} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, bloodlust, combat res, and markers.
+            Load a recording to see deaths, interrupts, bloodlust, combat res, hits, heals, and markers.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, bloodlust, combat res, or markers in this recording.
+            No deaths, interrupts, bloodlust, combat res, hits, heals, or markers in this recording.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>
@@ -105,6 +111,7 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
           <ul className="py-1">
             {listEvents.map((event) => {
               const isActive = event.id === activeEventId;
+              const compactAmount = formatCompactAmount(event.amount);
 
               return (
                 <li key={event.id}>
@@ -115,7 +122,9 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
                       isActive ? "bg-white/10" : "hover:bg-white/5"
                     }`}
                     aria-current={isActive ? "true" : undefined}
-                    aria-label={`Seek to ${EVENT_LIST_LABELS[event.type]} at ${formatTime(event.timestamp)}`}
+                    aria-label={`Seek to ${EVENT_LIST_LABELS[event.type]} at ${formatTime(event.timestamp)}${
+                      compactAmount ? `, ${compactAmount}` : ""
+                    }`}
                   >
                     <span className="mt-0.5 shrink-0">
                       <EventMarker type={event.type} variant="compact" />
@@ -129,8 +138,19 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
                           {formatTime(event.timestamp)}
                         </span>
                       </span>
-                      <span className="mt-0.5 block truncate text-xs text-neutral-400">
-                        {getEventListDetail(event)}
+                      <span className="mt-0.5 flex items-baseline justify-between gap-2">
+                        <span className="truncate text-xs text-neutral-400">
+                          {getEventListDetail(event)}
+                        </span>
+                        {compactAmount ? (
+                          <span
+                            className={`shrink-0 font-mono text-[11px] ${
+                              event.type === "heal" ? "text-teal-300" : "text-orange-300"
+                            }`}
+                          >
+                            {compactAmount}
+                          </span>
+                        ) : null}
                       </span>
                     </span>
                   </button>

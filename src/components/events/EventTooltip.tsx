@@ -1,5 +1,5 @@
 import { GameEvent } from "../../types/events";
-import { formatTime } from "../../utils/format";
+import { formatCompactAmount, formatTime } from "../../utils/format";
 import { AnimatedTooltip } from "../ui/AnimatedTooltip";
 
 interface EventTooltipProps {
@@ -14,6 +14,8 @@ const EVENT_LABELS: Record<GameEvent["type"], string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  bigHit: "Big Hit",
+  heal: "Heal",
 };
 
 function getEventDescription(event: GameEvent): string {
@@ -37,14 +39,29 @@ function getEventDescription(event: GameEvent): string {
     return `${event.source ?? "Unknown"} combat ressed ${event.target ?? "Unknown"}`;
   }
 
+  if (event.type === "bigHit") {
+    return `${event.source ?? "Unknown"} hit ${event.target ?? "Unknown"}`;
+  }
+
+  if (event.type === "heal") {
+    return `${event.source ?? "Unknown"} healed ${event.target ?? "Unknown"}`;
+  }
+
   return `${event.source ?? "Unknown"} killed ${event.target ?? "Unknown"}`;
 }
 
 export function EventTooltip({ event, x }: EventTooltipProps) {
+  const compactAmount = formatCompactAmount(event.amount);
+
   return (
     <AnimatedTooltip x={x}>
       <div className="font-medium">{EVENT_LABELS[event.type]}</div>
       <div className="text-neutral-400">{getEventDescription(event)}</div>
+      {compactAmount ? (
+        <div className={event.type === "heal" ? "text-teal-300" : "text-orange-300"}>
+          {compactAmount}
+        </div>
+      ) : null}
       <div className="text-neutral-500">{formatTime(event.timestamp)}</div>
     </AnimatedTooltip>
   );

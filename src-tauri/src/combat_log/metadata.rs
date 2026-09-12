@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -9,8 +9,9 @@ use crate::recording::metadata::{
 
 use super::parse::{
     extract_raw_event_type_from_line, is_context_only_event, log_clock_diff_seconds,
-    normalize_name, parse_combatant_info_snapshot, parse_important_combat_event,
-    parse_player_identities_from_log_line, should_reset_player_roster_for_event, DebugParseContext,
+    normalize_name, parse_combat_amount_sample, parse_combatant_info_snapshot,
+    parse_important_combat_event, parse_player_identities_from_log_line,
+    should_reset_player_roster_for_event, CombatAmountKind, CombatAmountSample, DebugParseContext,
     ImportantCombatEvent, LogTimestamp,
 };
 use super::{
@@ -36,6 +37,7 @@ pub(crate) struct RecordingMetadataAccumulator {
     recording_active: bool,
     recording_elapsed_origin_seconds: f64,
     session_log_origin_seconds: Option<f64>,
+    last_damage_by_dest: HashMap<String, u64>,
 }
 
 impl RecordingMetadataAccumulator {
@@ -53,7 +55,17 @@ impl RecordingMetadataAccumulator {
         self.capture_combatant_info_snapshot(line);
         self.capture_player_names_for_known_roster(line);
 
-        let parsed_event = parse_important_combat_event(line, &mut self.context)?;
+        let amount_event = self.ingest_combat_amount_line(line, elapsed_seconds);
+
+        let Some(mut parsed_event) = parse_important_combat_event(line, &mut self.context) else {
+            return amount_event;
+        };
+
+        if parsed_event.event_type == "UNIT_DIED" {
+            if let Some(dest_guid) = parsed_event.dest_guid.as_ref() {
+                parsed_event.amount = self.last_damage_by_dest.get(dest_guid).copied();
+            }
+        }
 
         if parsed_event.raw_event_type == "CHALLENGE_MODE_START" {
             update_option_if_some(&mut self.zone_name, parsed_event.zone_name.as_ref());
@@ -120,6 +132,7 @@ impl RecordingMetadataAccumulator {
                 source: None,
                 target: None,
                 target_kind: None,
+                amount: None,
                 zone_name: self.zone_name.clone(),
                 encounter_name: self.latest_encounter_name.clone(),
                 encounter_category: self.latest_encounter_category.clone(),
@@ -239,6 +252,8 @@ impl RecordingMetadataAccumulator {
             source: None,
             target: None,
             target_kind: None,
+            dest_guid: None,
+            amount: None,
             zone_name: self.zone_name.clone(),
             encounter_name: self.latest_encounter_name.clone(),
             encounter_category: self.latest_encounter_category.clone(),
@@ -295,11 +310,69 @@ impl RecordingMetadataAccumulator {
             source: event.source.clone(),
             target: event.target.clone(),
             target_kind: event.target_kind.clone(),
+            amount: event.amount,
             zone_name: event.zone_name.clone(),
             encounter_name: event.encounter_name.clone(),
             encounter_category: event.encounter_category.clone(),
             key_level: event.key_level,
         });
+    }
+
+    fn ingest_combat_amount_line(
+        &mut self,
+        line: &str,
+        elapsed_seconds: f64,
+    ) -> Option<ImportantCombatEvent> {
+        let sample = parse_combat_amount_sample(line)?;
+        self.note_last_damage(&sample);
+
+        if !self.recording_active || !sample.persist_as_marker {
+            return None;
+        }
+
+        let amount_event = self.amount_sample_as_event(sample);
+        self.record_important_event(&amount_event, elapsed_seconds);
+        Some(amount_event)
+    }
+
+    fn note_last_damage(&mut self, sample: &CombatAmountSample) {
+        if sample.kind != CombatAmountKind::Damage {
+            return;
+        }
+
+        self.last_damage_by_dest
+            .insert(sample.dest_guid.clone(), sample.amount);
+    }
+
+    fn amount_sample_as_event(&self, sample: CombatAmountSample) -> ImportantCombatEvent {
+        let event_type = match sample.kind {
+            CombatAmountKind::Damage => "BIG_HIT",
+            CombatAmountKind::Heal => "HEAL",
+        };
+
+        ImportantCombatEvent {
+            raw_event_type: sample.raw_event_type,
+            log_timestamp: sample.log_timestamp,
+            event_type: event_type.to_string(),
+            source: sample.source,
+            target: sample.target,
+            target_kind: sample.target_kind,
+            dest_guid: Some(sample.dest_guid),
+            amount: Some(sample.amount),
+            zone_name: self
+                .zone_name
+                .clone()
+                .or_else(|| self.context.current_zone.clone()),
+            encounter_name: self
+                .latest_encounter_name
+                .clone()
+                .or_else(|| self.context.current_encounter.clone()),
+            encounter_category: self
+                .latest_encounter_category
+                .clone()
+                .or_else(|| self.context.current_encounter_category.clone()),
+            key_level: self.key_level.or(self.context.current_key_level),
+        }
     }
 
     fn reset_player_roster(&mut self) {

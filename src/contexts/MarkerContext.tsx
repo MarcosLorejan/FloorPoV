@@ -8,6 +8,8 @@ const DEFAULT_EVENT_TYPE_VISIBILITY: Record<GameEvent["type"], boolean> = {
   interrupt: true,
   bloodlust: true,
   combatRes: true,
+  bigHit: true,
+  heal: true,
 };
 
 interface MarkerContextType {

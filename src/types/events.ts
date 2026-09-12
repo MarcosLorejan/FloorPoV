@@ -1,10 +1,11 @@
 export interface GameEvent {
   id: string;
   timestamp: number;
-  type: "kill" | "death" | "manual" | "interrupt" | "bloodlust" | "combatRes";
+  type: "kill" | "death" | "manual" | "interrupt" | "bloodlust" | "combatRes" | "bigHit" | "heal";
   source?: string;
   target?: string;
   targetKind?: string;
+  amount?: number;
 }
 
 export interface RecordingImportantEventMetadata {
@@ -14,6 +15,7 @@ export interface RecordingImportantEventMetadata {
   source?: string;
   target?: string;
   targetKind?: string;
+  amount?: number;
   zoneName?: string;
   encounterName?: string;
   encounterCategory?: string;
@@ -54,6 +56,7 @@ export interface CombatEvent {
   eventType: string;
   source?: string;
   target?: string;
+  amount?: number;
 }
 
 export interface CombatTriggerEvent {
@@ -101,6 +104,8 @@ const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "SPELL_INTERRUPT",
   "BLOODLUST",
   "COMBAT_RES",
+  "BIG_HIT",
+  "HEAL",
 ]);
 
 const NPC_KINDS = new Set(["NPC", "PET", "GUARDIAN", "UNKNOWN"]);
@@ -147,6 +152,14 @@ function mapEventTypeToGameEventType(eventType: string): GameEvent["type"] {
     return "combatRes";
   }
 
+  if (eventType === "BIG_HIT") {
+    return "bigHit";
+  }
+
+  if (eventType === "HEAL") {
+    return "heal";
+  }
+
   return "manual";
 }
 
@@ -174,6 +187,7 @@ export function convertRecordingMetadataToGameEvents(
         source: importantEvent.source,
         target: importantEvent.target,
         targetKind: importantEvent.targetKind,
+        amount: importantEvent.amount,
       }];
     })
     .sort((a, b) => a.timestamp - b.timestamp)
@@ -205,7 +219,9 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
     event.type === "manual" ||
     event.type === "interrupt" ||
     event.type === "bloodlust" ||
-    event.type === "combatRes"
+    event.type === "combatRes" ||
+    event.type === "bigHit" ||
+    event.type === "heal"
   );
 }
 
@@ -219,7 +235,13 @@ export function shouldShowGameEvent(
   }
 
   // These types are useful even when the dest unit is an NPC or the caster themselves.
-  if (event.type === "interrupt" || event.type === "bloodlust" || event.type === "combatRes") {
+  if (
+    event.type === "interrupt" ||
+    event.type === "bloodlust" ||
+    event.type === "combatRes" ||
+    event.type === "bigHit" ||
+    event.type === "heal"
+  ) {
     return true;
   }
 
@@ -239,5 +261,6 @@ export function convertCombatEvent(combatEvent: CombatEvent): GameEvent {
     type,
     source: combatEvent.source,
     target: combatEvent.target,
+    amount: combatEvent.amount,
   };
 }

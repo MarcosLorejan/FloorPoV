@@ -1,4 +1,4 @@
-import { GameEvent, getGameEventDescription } from "../../types/events";
+import { GameEvent, GameEventType, getGameEventDescription } from "../../types/events";
 import { formatTime } from "../../utils/format";
 import { AnimatedTooltip } from "../ui/AnimatedTooltip";
 
@@ -7,7 +7,7 @@ interface EventTooltipProps {
   x: number;
 }
 
-const EVENT_LABELS: Record<GameEvent["type"], string> = {
+const EVENT_LABELS: Record<GameEventType, string> = {
   death: "Death",
   manual: "Manual Marker",
   interrupt: "Interrupt",
@@ -15,6 +15,8 @@ const EVENT_LABELS: Record<GameEvent["type"], string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  crowdControl: "Crowd Control",
+  crowdControlBreak: "Crowd Control Break",
 };
 
 export function EventTooltip({ event, x }: EventTooltipProps) {

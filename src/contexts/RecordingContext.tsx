@@ -64,7 +64,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   const [playbackMetadataEpoch, setPlaybackMetadataEpoch] = useState(0);
   const appStatusDetail = windowGoneDetail ?? combatWatchDetail ?? autoRecordingConfigDetail;
   const { settings, updateSettings } = useSettings();
-  const { addEvent, setEvents, setEncounters, clearEvents } = useMarker();
+  const { addEvent, setEvents, setEncounters, setPlayers, clearEvents } = useMarker();
   const operationInFlightRef = useRef(false);
   const isRecordingRef = useRef(false);
   const recordingOriginRef = useRef<RecordingOrigin | null>(null);
@@ -361,6 +361,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     if (!normalizedPath) {
       setEvents([]);
       setEncounters([]);
+      setPlayers([]);
       return;
     }
 
@@ -371,12 +372,14 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
 
       setEvents(convertRecordingMetadataToGameEvents(metadata));
       setEncounters(metadata?.encounters ?? []);
+      setPlayers(metadata?.players ?? []);
     } catch (error) {
       console.warn("Failed to load recording metadata. Falling back to no markers.", error);
       setEvents([]);
       setEncounters([]);
+      setPlayers([]);
     }
-  }, [isRecording, setEncounters, setEvents]);
+  }, [isRecording, setEncounters, setEvents, setPlayers]);
 
   const bumpPlaybackMetadataEpoch = useCallback(() => {
     setPlaybackMetadataEpoch((currentEpoch) => currentEpoch + 1);

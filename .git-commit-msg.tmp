@@ -1,4 +1,4 @@
-chore(combat): merge origin/main after notes and named markers
+chore(combat): merge origin/main after hits and notes
 
-Keep compact hit and heal amounts next to boss casts, notes, and
-named markers. Killing blows still use overkill >= 0.
+Keep defensive cooldown markers next to boss casts, compact amounts,
+notes, and named markers. Spell names stay on abilityName.

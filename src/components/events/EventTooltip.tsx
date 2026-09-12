@@ -14,6 +14,7 @@ const EVENT_LABELS: Record<GameEventType, string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  defensive: "Defensive",
   bigHit: "Big Hit",
   heal: "Heal",
   bossAbility: "Boss Ability",
@@ -41,6 +42,16 @@ function getEventDescription(event: GameEvent): string {
 
   if (event.type === "combatRes") {
     return `${event.source ?? "Unknown"} combat ressed ${event.target ?? "Unknown"}`;
+  }
+
+  if (event.type === "defensive") {
+    const source = event.source ?? "Unknown";
+    const ability = event.abilityName ?? "Unknown";
+    if (event.target && event.target !== event.source) {
+      return `${source} used ${ability} on ${event.target}`;
+    }
+
+    return `${source} used ${ability}`;
   }
 
   if (event.type === "bigHit") {

@@ -30,6 +30,7 @@ const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   kill: "Kill",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  defensive: "Defensive",
   bigHit: "Big Hit",
   heal: "Heal",
   bossAbility: "Boss Ability",
@@ -44,6 +45,7 @@ const EVENT_LIST_FILTER_TYPES: GameEventType[] = [
   "manual",
   "bloodlust",
   "combatRes",
+  "defensive",
   "bigHit",
   "heal",
   "bossAbility",
@@ -71,6 +73,15 @@ function getEventListDetail(event: GameEvent): string {
 
   if (event.type === "combatRes") {
     return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+  }
+
+  if (event.type === "defensive") {
+    const sourceAndAbility = `${formatUnitName(event.source)} · ${event.abilityName ?? "Unknown"}`;
+    if (event.target && event.target !== event.source) {
+      return `${sourceAndAbility} → ${formatUnitName(event.target)}`;
+    }
+
+    return sourceAndAbility;
   }
 
   if (event.type === "bigHit" || event.type === "heal") {
@@ -343,14 +354,14 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, crowd control, boss abilities, hits, heals,
-            markers, and notes.
+            Load a recording to see deaths, interrupts, crowd control, boss abilities, defensives,
+            hits, heals, markers, and notes.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, bloodlust, combat res, crowd control, boss abilities, hits,
-            heals, markers, or notes in this recording. Import a combat log from the player
-            controls to add them.
+            No deaths, interrupts, bloodlust, combat res, crowd control, boss abilities,
+            defensives, hits, heals, markers, or notes in this recording. Import a combat log from
+            the player controls to add them.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>

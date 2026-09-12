@@ -80,6 +80,8 @@ export function getEventTypeLabel(eventType: string): string {
       return "Bloodlust";
     case "COMBAT_RES":
       return "Combat Res";
+    case "DEFENSIVE":
+      return "Defensive";
     case "BIG_HIT":
       return "Big Hit";
     case "HEAL":

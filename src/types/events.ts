@@ -5,6 +5,7 @@ export type GameEventType =
   | "interrupt"
   | "bloodlust"
   | "combatRes"
+  | "defensive"
   | "bigHit"
   | "heal"
   | "bossAbility"
@@ -196,6 +197,7 @@ const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "SPELL_INTERRUPT",
   "BLOODLUST",
   "COMBAT_RES",
+  "DEFENSIVE",
   "BIG_HIT",
   "HEAL",
   "BOSS_ABILITY",
@@ -245,6 +247,10 @@ function mapEventTypeToGameEventType(eventType: string): GameEventType {
 
   if (eventType === "COMBAT_RES") {
     return "combatRes";
+  }
+
+  if (eventType === "DEFENSIVE") {
+    return "defensive";
   }
 
   if (eventType === "BIG_HIT") {
@@ -306,6 +312,7 @@ function isDeduplicatedEventType(type: GameEventType): boolean {
   return (
     type === "bloodlust" ||
     type === "combatRes" ||
+    type === "defensive" ||
     type === "bossAbility" ||
     isCrowdControlEventType(type)
   );
@@ -325,7 +332,7 @@ function isDuplicateOfEvent(existingEvent: GameEvent, event: GameEvent): boolean
     );
   }
 
-  if (event.type === "bossAbility") {
+  if (event.type === "defensive" || event.type === "bossAbility") {
     return (
       Math.abs(existingEvent.timestamp - event.timestamp) < DUPLICATE_EVENT_WINDOW_SECONDS &&
       existingEvent.source === event.source &&
@@ -414,6 +421,7 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
     event.type === "interrupt" ||
     event.type === "bloodlust" ||
     event.type === "combatRes" ||
+    event.type === "defensive" ||
     event.type === "bigHit" ||
     event.type === "heal" ||
     event.type === "bossAbility" ||
@@ -436,6 +444,7 @@ export function shouldShowGameEvent(
     event.type === "interrupt" ||
     event.type === "bloodlust" ||
     event.type === "combatRes" ||
+    event.type === "defensive" ||
     event.type === "bigHit" ||
     event.type === "heal" ||
     event.type === "bossAbility" ||

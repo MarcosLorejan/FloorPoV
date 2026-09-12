@@ -580,6 +580,9 @@ fn encounter_key(encounter_name: &str, encounter_category: &str) -> String {
     format!("{encounter_name}:{encounter_category}")
 }
 
+/// Structural events anchor the recording timeline and are rare enough to keep
+/// unconditionally. Frequent casts such as defensives stay in the capped pool so
+/// a long session cannot grow `.meta.json` without bound.
 fn is_structural_event_type(event_type: &str) -> bool {
     matches!(
         event_type,

@@ -1,10 +1,11 @@
 export interface GameEvent {
   id: string;
   timestamp: number;
-  type: "kill" | "death" | "manual" | "interrupt" | "bloodlust" | "combatRes";
+  type: "kill" | "death" | "manual" | "interrupt" | "bloodlust" | "combatRes" | "defensive";
   source?: string;
   target?: string;
   targetKind?: string;
+  ability?: string;
 }
 
 export interface RecordingImportantEventMetadata {
@@ -14,6 +15,7 @@ export interface RecordingImportantEventMetadata {
   source?: string;
   target?: string;
   targetKind?: string;
+  abilityName?: string;
   zoneName?: string;
   encounterName?: string;
   encounterCategory?: string;
@@ -54,6 +56,7 @@ export interface CombatEvent {
   eventType: string;
   source?: string;
   target?: string;
+  abilityName?: string;
 }
 
 export interface CombatTriggerEvent {
@@ -77,6 +80,7 @@ export interface ParsedCombatEvent {
   source?: string;
   target?: string;
   targetKind?: string;
+  abilityName?: string;
   zoneName?: string;
   encounterName?: string;
   encounterCategory?: "mythicPlus" | "raid" | "pvp" | "unknown";
@@ -101,6 +105,7 @@ const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "SPELL_INTERRUPT",
   "BLOODLUST",
   "COMBAT_RES",
+  "DEFENSIVE",
 ]);
 
 const NPC_KINDS = new Set(["NPC", "PET", "GUARDIAN", "UNKNOWN"]);
@@ -147,6 +152,10 @@ function mapEventTypeToGameEventType(eventType: string): GameEvent["type"] {
     return "combatRes";
   }
 
+  if (eventType === "DEFENSIVE") {
+    return "defensive";
+  }
+
   return "manual";
 }
 
@@ -174,11 +183,12 @@ export function convertRecordingMetadataToGameEvents(
         source: importantEvent.source,
         target: importantEvent.target,
         targetKind: importantEvent.targetKind,
+        ability: importantEvent.abilityName,
       }];
     })
     .sort((a, b) => a.timestamp - b.timestamp)
     .reduce<GameEvent[]>((uniqueEvents, event) => {
-      if (event.type !== "bloodlust" && event.type !== "combatRes") {
+      if (event.type !== "bloodlust" && event.type !== "combatRes" && event.type !== "defensive") {
         uniqueEvents.push(event);
         return uniqueEvents;
       }
@@ -187,6 +197,7 @@ export function convertRecordingMetadataToGameEvents(
         return (
           existingEvent.type === event.type &&
           existingEvent.source === event.source &&
+          existingEvent.ability === event.ability &&
           Math.abs(existingEvent.timestamp - event.timestamp) < 2
         );
       });
@@ -205,7 +216,8 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
     event.type === "manual" ||
     event.type === "interrupt" ||
     event.type === "bloodlust" ||
-    event.type === "combatRes"
+    event.type === "combatRes" ||
+    event.type === "defensive"
   );
 }
 
@@ -219,7 +231,12 @@ export function shouldShowGameEvent(
   }
 
   // These types are useful even when the dest unit is an NPC or the caster themselves.
-  if (event.type === "interrupt" || event.type === "bloodlust" || event.type === "combatRes") {
+  if (
+    event.type === "interrupt" ||
+    event.type === "bloodlust" ||
+    event.type === "combatRes" ||
+    event.type === "defensive"
+  ) {
     return true;
   }
 
@@ -239,5 +256,6 @@ export function convertCombatEvent(combatEvent: CombatEvent): GameEvent {
     type,
     source: combatEvent.source,
     target: combatEvent.target,
+    ability: combatEvent.abilityName,
   };
 }

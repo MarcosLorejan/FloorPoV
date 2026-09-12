@@ -31,6 +31,8 @@ pub struct RecordingImportantEventMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ability_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub zone_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encounter_name: Option<String>,
@@ -602,6 +604,7 @@ mod tests {
                 source: Some("PlayerOne".to_string()),
                 target: Some("Boss".to_string()),
                 target_kind: Some("NPC".to_string()),
+                ability_name: None,
                 zone_name: Some("Test Zone".to_string()),
                 encounter_name: Some("Test Encounter".to_string()),
                 encounter_category: Some("raid".to_string()),
@@ -633,6 +636,97 @@ mod tests {
         let sidecar_path = metadata_sidecar_path(&recording_path);
         assert!(!sidecar_path.exists());
 
+        std::fs::remove_file(&recording_path).expect("Failed to remove test recording file");
+        std::fs::remove_dir_all(&temp_directory)
+            .expect("Failed to remove temporary metadata test directory");
+    }
+
+    #[test]
+    fn roundtrips_defensive_ability_name() {
+        let temp_directory = unique_temp_directory();
+        std::fs::create_dir_all(&temp_directory)
+            .expect("Failed to create temporary metadata test directory");
+
+        let recording_path = temp_directory.join("screen_recording_20260223_101500.mp4");
+        std::fs::write(&recording_path, b"test")
+            .expect("Failed to create test recording file for defensive roundtrip");
+
+        let mut metadata = RecordingMetadata::new(&recording_path);
+        metadata
+            .important_events
+            .push(RecordingImportantEventMetadata {
+                timestamp_seconds: 31.5,
+                log_timestamp: Some("2/23 10:15:31.000".to_string()),
+                event_type: "DEFENSIVE".to_string(),
+                source: Some("PriestOne-NA".to_string()),
+                target: Some("TankOne-NA".to_string()),
+                target_kind: Some("PLAYER".to_string()),
+                ability_name: Some("Pain Suppression".to_string()),
+                zone_name: Some("Test Zone".to_string()),
+                encounter_name: None,
+                encounter_category: None,
+                key_level: None,
+            });
+
+        write_recording_metadata(&recording_path, &metadata)
+            .expect("Expected metadata write to succeed");
+
+        let sidecar_path = metadata_sidecar_path(&recording_path);
+        let sidecar_contents = std::fs::read_to_string(&sidecar_path)
+            .expect("Expected metadata sidecar to be written");
+        assert!(
+            sidecar_contents.contains("\"abilityName\""),
+            "Defensive spell names must persist under the camelCase frontend contract"
+        );
+
+        let loaded_metadata = read_recording_metadata(&recording_path)
+            .expect("Expected metadata read to succeed")
+            .expect("Expected metadata sidecar to exist");
+
+        assert_eq!(loaded_metadata.important_events.len(), 1);
+        assert_eq!(
+            loaded_metadata.important_events[0].ability_name.as_deref(),
+            Some("Pain Suppression")
+        );
+
+        delete_recording_metadata(&recording_path).expect("Expected metadata delete to succeed");
+        std::fs::remove_file(&recording_path).expect("Failed to remove test recording file");
+        std::fs::remove_dir_all(&temp_directory)
+            .expect("Failed to remove temporary metadata test directory");
+    }
+
+    #[test]
+    fn reads_legacy_sidecar_without_ability_name() {
+        let temp_directory = unique_temp_directory();
+        std::fs::create_dir_all(&temp_directory)
+            .expect("Failed to create temporary metadata test directory");
+
+        let recording_path = temp_directory.join("screen_recording_20260223_102000.mp4");
+        std::fs::write(&recording_path, b"test")
+            .expect("Failed to create test recording file for legacy sidecar read");
+
+        let sidecar_path = metadata_sidecar_path(&recording_path);
+        std::fs::write(
+            &sidecar_path,
+            r#"{
+  "schemaVersion": 2,
+  "recordingFile": "screen_recording_20260223_102000.mp4",
+  "importantEvents": [
+    { "timestampSeconds": 4.0, "eventType": "UNIT_DIED", "target": "TankOne-NA" }
+  ],
+  "capturedAtUnix": 1771843200
+}"#,
+        )
+        .expect("Failed to write legacy metadata sidecar");
+
+        let loaded_metadata = read_recording_metadata(&recording_path)
+            .expect("Expected legacy metadata read to succeed")
+            .expect("Expected metadata sidecar to exist");
+
+        assert_eq!(loaded_metadata.important_events.len(), 1);
+        assert_eq!(loaded_metadata.important_events[0].ability_name, None);
+
+        delete_recording_metadata(&recording_path).expect("Expected metadata delete to succeed");
         std::fs::remove_file(&recording_path).expect("Failed to remove test recording file");
         std::fs::remove_dir_all(&temp_directory)
             .expect("Failed to remove temporary metadata test directory");

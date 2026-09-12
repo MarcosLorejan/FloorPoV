@@ -172,6 +172,239 @@ fn records_bloodlust_from_time_warp_cast() {
     );
 }
 
+fn build_spell_cast_success_line(
+    source_guid: &str,
+    source_name: &str,
+    source_flags: &str,
+    dest_guid: &str,
+    dest_name: &str,
+    dest_flags: &str,
+    spell_id: &str,
+    spell_name: &str,
+) -> String {
+    build_line(
+        "SPELL_CAST_SUCCESS",
+        &[
+            source_guid,
+            source_name,
+            source_flags,
+            "0x0",
+            dest_guid,
+            dest_name,
+            dest_flags,
+            "0x0",
+            spell_id,
+            spell_name,
+            "64",
+        ],
+    )
+}
+
+#[test]
+fn records_defensive_from_ice_block_cast() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let ice_block_line = build_spell_cast_success_line(
+        "Player-1111-00000001",
+        "\"MageOne-NA\"",
+        "0x514",
+        "Player-1111-00000001",
+        "\"MageOne-NA\"",
+        "0x514",
+        "45438",
+        "\"Ice Block\"",
+    );
+    accumulator.consume_combat_log_line(&ice_block_line, 18.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.important_events.len(), 1);
+    assert_eq!(snapshot.important_events[0].event_type, "DEFENSIVE");
+    assert_eq!(
+        snapshot.important_events[0].source.as_deref(),
+        Some("MageOne-NA")
+    );
+    assert_eq!(
+        snapshot.important_events[0].ability_name.as_deref(),
+        Some("Ice Block")
+    );
+}
+
+#[test]
+fn records_external_defensive_pain_suppression() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let pain_suppression_line = build_spell_cast_success_line(
+        "Player-1111-00000004",
+        "\"PriestOne-NA\"",
+        "0x514",
+        "Player-1111-00000005",
+        "\"TankOne-NA\"",
+        "0x514",
+        "33206",
+        "\"Pain Suppression\"",
+    );
+    accumulator.consume_combat_log_line(&pain_suppression_line, 22.0);
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(snapshot.important_events.len(), 1);
+    assert_eq!(snapshot.important_events[0].event_type, "DEFENSIVE");
+    assert_eq!(
+        snapshot.important_events[0].source.as_deref(),
+        Some("PriestOne-NA")
+    );
+    assert_eq!(
+        snapshot.important_events[0].target.as_deref(),
+        Some("TankOne-NA")
+    );
+    assert_eq!(
+        snapshot.important_events[0].ability_name.as_deref(),
+        Some("Pain Suppression")
+    );
+}
+
+#[test]
+fn ignores_minor_absorb_barrier() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let ice_barrier_line = build_spell_cast_success_line(
+        "Player-1111-00000001",
+        "\"MageOne-NA\"",
+        "0x514",
+        "Player-1111-00000001",
+        "\"MageOne-NA\"",
+        "0x514",
+        "11426",
+        "\"Ice Barrier\"",
+    );
+    accumulator.consume_combat_log_line(&ice_barrier_line, 8.0);
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot.important_events.is_empty());
+}
+
+#[test]
+fn ignores_npc_cast_with_defensive_spell_id() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let npc_ice_block_line = build_spell_cast_success_line(
+        "Creature-0-0-0-0-2001-0000000000",
+        "\"Training Dummy\"",
+        "0x10a48",
+        "Creature-0-0-0-0-2001-0000000000",
+        "\"Training Dummy\"",
+        "0x10a48",
+        "45438",
+        "\"Ice Block\"",
+    );
+    accumulator.consume_combat_log_line(&npc_ice_block_line, 9.0);
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot.important_events.is_empty());
+}
+
+#[test]
+fn defensive_cast_emits_live_event_with_ability_name() {
+    let mut context = super::parse::DebugParseContext::default();
+    let ice_block_line = build_spell_cast_success_line(
+        "Player-1111-00000001",
+        "\"MageOne-NA\"",
+        "0x514",
+        "Player-1111-00000001",
+        "\"MageOne-NA\"",
+        "0x514",
+        "45438",
+        "\"Ice Block\"",
+    );
+    let parsed_event = parse_important_combat_event(&ice_block_line, &mut context)
+        .expect("ice block should parse as an important event");
+    let live_event = parsed_event
+        .into_live_event(Some(18.0))
+        .expect("defensive casts should emit live playback events");
+
+    assert_eq!(live_event.event_type, "DEFENSIVE");
+    assert_eq!(live_event.source.as_deref(), Some("MageOne-NA"));
+    assert_eq!(live_event.ability_name.as_deref(), Some("Ice Block"));
+}
+
+#[test]
+fn counts_every_defensive_cast_even_when_repeated() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    for (index, (spell_id, spell_name)) in [
+        ("48792", "\"Icebound Fortitude\""),
+        ("48707", "\"Anti-Magic Shell\""),
+        ("48792", "\"Icebound Fortitude\""),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let defensive_line = build_spell_cast_success_line(
+            "Player-1111-00000002",
+            "\"DeathKnightOne-NA\"",
+            "0x514",
+            "Player-1111-00000002",
+            "\"DeathKnightOne-NA\"",
+            "0x514",
+            spell_id,
+            spell_name,
+        );
+        accumulator.consume_combat_log_line(&defensive_line, 30.0 + index as f64 * 45.0);
+    }
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(
+        snapshot.important_event_counts.get("DEFENSIVE").copied(),
+        Some(3)
+    );
+    assert_eq!(snapshot.important_events.len(), 3);
+    assert_eq!(
+        snapshot.important_events[1].ability_name.as_deref(),
+        Some("Anti-Magic Shell")
+    );
+}
+
+#[test]
+fn caps_defensive_events_like_other_high_volume_events() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let overflow_count = 25;
+    let total_defensives = MAX_PERSISTED_HIGH_VOLUME_EVENTS + overflow_count;
+    let defensive_line = build_spell_cast_success_line(
+        "Player-1111-00000001",
+        "\"MageOne-NA\"",
+        "0x514",
+        "Player-1111-00000001",
+        "\"MageOne-NA\"",
+        "0x514",
+        "45438",
+        "\"Ice Block\"",
+    );
+    for index in 0..total_defensives {
+        accumulator.consume_combat_log_line(&defensive_line, 1.0 + index as f64);
+    }
+
+    let snapshot = accumulator.snapshot();
+    assert_eq!(
+        snapshot.important_events.len(),
+        MAX_PERSISTED_HIGH_VOLUME_EVENTS,
+        "Defensives are frequent, so they must respect the persisted event cap"
+    );
+    assert_eq!(
+        snapshot.important_event_counts.get("DEFENSIVE").copied(),
+        Some(total_defensives as u64)
+    );
+    assert_eq!(
+        snapshot.important_events_dropped_count, overflow_count as u64,
+        "Dropped count should reflect the trimmed defensives"
+    );
+}
+
 #[test]
 fn records_combat_res_from_spell_resurrect() {
     let mut accumulator = RecordingMetadataAccumulator::default();
@@ -975,6 +1208,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: Some("Atlas".to_string()),
             target_kind: Some("PLAYER".to_string()),
+            ability_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: None,
             encounter_category: None,
@@ -987,6 +1221,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: None,
             target_kind: None,
+            ability_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),
@@ -999,6 +1234,7 @@ fn rebases_compressed_sidecar_timestamps_from_log_clock() {
             source: None,
             target: None,
             target_kind: None,
+            ability_name: None,
             zone_name: Some("Ruby Life Pools".to_string()),
             encounter_name: Some("Kyrakka and Erkhart Stormvein".to_string()),
             encounter_category: Some("mythicPlus".to_string()),

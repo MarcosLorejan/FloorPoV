@@ -8,6 +8,7 @@ pub(crate) struct ImportantCombatEvent {
     pub(crate) source: Option<String>,
     pub(crate) target: Option<String>,
     pub(crate) target_kind: Option<String>,
+    pub(crate) ability_name: Option<String>,
     pub(crate) zone_name: Option<String>,
     pub(crate) encounter_name: Option<String>,
     pub(crate) encounter_category: Option<String>,
@@ -35,12 +36,15 @@ impl ImportantCombatEvent {
     ) -> Option<super::CombatEvent> {
         let timestamp = recording_elapsed_seconds?;
         match self.event_type.as_str() {
-            "PARTY_KILL" | "UNIT_DIED" | "BLOODLUST" | "COMBAT_RES" => Some(super::CombatEvent {
-                timestamp,
-                event_type: self.event_type,
-                source: self.source,
-                target: self.target,
-            }),
+            "PARTY_KILL" | "UNIT_DIED" | "BLOODLUST" | "COMBAT_RES" | "DEFENSIVE" => {
+                Some(super::CombatEvent {
+                    timestamp,
+                    event_type: self.event_type,
+                    source: self.source,
+                    target: self.target,
+                    ability_name: self.ability_name,
+                })
+            }
             _ => None,
         }
     }
@@ -110,6 +114,7 @@ pub(crate) fn parse_important_combat_event(
         source: parsed_line.source,
         target: parsed_line.target,
         target_kind: parsed_line.target_kind,
+        ability_name: parsed_line.ability_name,
         zone_name: context.current_zone.clone(),
         encounter_name,
         encounter_category,
@@ -172,6 +177,7 @@ pub(crate) fn parse_important_log_line(
         source: parsed_event.source,
         target: parsed_event.target,
         target_kind: parsed_event.target_kind,
+        ability_name: parsed_event.ability_name,
         zone_name: parsed_event.zone_name,
         encounter_name: parsed_event.encounter_name,
         encounter_category: parsed_event.encounter_category,
@@ -200,6 +206,7 @@ struct ParsedLogLine {
     source: Option<String>,
     target: Option<String>,
     target_kind: Option<String>,
+    ability_name: Option<String>,
     fields: Vec<String>,
 }
 
@@ -225,6 +232,11 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
     let dest_flags = remaining_fields.get(6).map(|value| value.as_str());
     let source_kind = classify_unit_type(source_flags, source_guid).map(str::to_string);
     let target_kind = classify_unit_type(dest_flags, dest_guid).map(str::to_string);
+    let ability_name = if normalized_event_type == "DEFENSIVE" {
+        extract_spell_name(&remaining_fields)
+    } else {
+        None
+    };
 
     Some(ParsedLogLine {
         raw_event_type: raw_event_type.to_string(),
@@ -233,6 +245,7 @@ fn parse_log_line_fields(line: &str) -> Option<ParsedLogLine> {
         source: normalize_entity_name(source_name, source_kind.as_deref()),
         target: normalize_entity_name(dest_name, target_kind.as_deref()),
         target_kind,
+        ability_name,
         fields: remaining_fields,
     })
 }
@@ -262,11 +275,25 @@ fn classify_cast_success_event(fields: &[String]) -> Option<&'static str> {
         return Some("BLOODLUST");
     }
 
+    if is_player_source(fields) && is_defensive_spell_id(spell_id) {
+        return Some("DEFENSIVE");
+    }
+
     None
 }
 
 fn extract_spell_id(fields: &[String]) -> Option<u32> {
     fields.get(8)?.trim_matches('"').parse().ok()
+}
+
+fn extract_spell_name(fields: &[String]) -> Option<String> {
+    normalize_name(fields.get(9).map(|value| value.as_str()))
+}
+
+fn is_player_source(fields: &[String]) -> bool {
+    let source_guid = fields.first().map(|value| value.as_str());
+    let source_flags = fields.get(2).map(|value| value.as_str());
+    classify_unit_type(source_flags, source_guid) == Some("PLAYER")
 }
 
 fn is_bloodlust_spell_id(spell_id: u32) -> bool {
@@ -286,6 +313,108 @@ fn is_bloodlust_spell_id(spell_id: u32) -> bool {
         309658 |   // Drums of Deathly Ferocity
         381301 |   // Feral Hide Drums
         444257 // Thunderous Drums
+    )
+}
+
+/// Major personal and external defensives that are worth seeking to on a VOD.
+///
+/// The set is deliberately narrow. Short-cooldown absorbs and passive mitigation
+/// (Ice Barrier, Power Word: Shield, Shield Block) are excluded because they fire
+/// often enough to bury the review-worthy casts.
+fn is_defensive_spell_id(spell_id: u32) -> bool {
+    matches!(
+        spell_id,
+        // Death Knight
+        48707 |    // Anti-Magic Shell
+        48792 |    // Icebound Fortitude
+        51052 |    // Anti-Magic Zone
+        55233 |    // Vampiric Blood
+        49028 |    // Dancing Rune Weapon
+        49039 |    // Lichborne
+        287081 |   // Lichborne (talent id)
+        48743 |    // Death Pact
+        // Demon Hunter
+        198589 |   // Blur
+        196718 |   // Darkness
+        196555 |   // Netherwalk
+        204021 |   // Fiery Brand
+        // Druid
+        22812 |    // Barkskin
+        61336 |    // Survival Instincts
+        102342 |   // Ironbark
+        200851 |   // Rage of the Sleeper
+        // Hunter
+        186265 |   // Aspect of the Turtle
+        264735 |   // Survival of the Fittest
+        281195 |   // Survival of the Fittest (spec)
+        272679 |   // Fortitude of the Bear
+        53480 |    // Roar of Sacrifice
+        // Mage
+        45438 |    // Ice Block
+        414658 |   // Ice Cold
+        110959 |   // Greater Invisibility
+        108978 |   // Alter Time
+        342245 |   // Alter Time (Arcane)
+        55342 |    // Mirror Image
+        414660 |   // Mass Barrier
+        // Monk
+        115203 |   // Fortifying Brew
+        243435 |   // Fortifying Brew (Mistweaver/Windwalker)
+        122470 |   // Touch of Karma
+        122783 |   // Diffuse Magic
+        122278 |   // Dampen Harm
+        116849 |   // Life Cocoon
+        115176 |   // Zen Meditation
+        // Paladin
+        642 |      // Divine Shield
+        498 |      // Divine Protection
+        403876 |   // Divine Protection (Retribution)
+        1022 |     // Blessing of Protection
+        6940 |     // Blessing of Sacrifice
+        204018 |   // Blessing of Spellwarding
+        31821 |    // Aura Mastery
+        31850 |    // Ardent Defender
+        86659 |    // Guardian of Ancient Kings
+        389539 |   // Sentinel
+        387174 |   // Eye of Tyr
+        184662 |   // Shield of Vengeance
+        // Priest
+        19236 |    // Desperate Prayer
+        47585 |    // Dispersion
+        33206 |    // Pain Suppression
+        47788 |    // Guardian Spirit
+        62618 |    // Power Word: Barrier
+        271466 |   // Luminous Barrier
+        108968 |   // Void Shift
+        // Rogue
+        31224 |    // Cloak of Shadows
+        5277 |     // Evasion
+        // Shaman
+        108271 |   // Astral Shift
+        98008 |    // Spirit Link Totem
+        198103 |   // Earth Elemental
+        108281 |   // Ancestral Guidance
+        207399 |   // Ancestral Protection Totem
+        198838 |   // Earthen Wall Totem
+        108270 |   // Stone Bulwark Totem
+        // Warlock
+        104773 |   // Unending Resolve
+        108416 |   // Dark Pact
+        // Warrior
+        871 |      // Shield Wall
+        118038 |   // Die by the Sword
+        184364 |   // Enraged Regeneration
+        97462 |    // Rallying Cry
+        23920 |    // Spell Reflection
+        12975 |    // Last Stand
+        383762 |   // Bitter Immunity
+        // Evoker
+        363916 |   // Obsidian Scales
+        374348 |   // Renewing Blaze
+        374227 |   // Zephyr
+        363534 |   // Rewind
+        357170 |   // Time Dilation
+        370665 // Rescue
     )
 }
 

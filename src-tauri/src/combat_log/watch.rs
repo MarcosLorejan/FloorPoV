@@ -303,6 +303,7 @@ pub async fn emit_manual_marker(app_handle: AppHandle) -> Result<(), String> {
                 event_type: EVENT_MANUAL_MARKER.to_string(),
                 source: None,
                 target: None,
+                ability_name: None,
             };
             emit_combat_event(&app_handle, &event);
         }

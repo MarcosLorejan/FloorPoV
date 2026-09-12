@@ -571,6 +571,7 @@ export function GameModePage({ gameMode }: GameModePageProps) {
                                           </td>
                                           <td className="px-2 py-1.5 text-amber-200">
                                             {getEventTypeLabel(event.eventType)}
+                                            {event.abilityName ? ` · ${event.abilityName}` : ""}
                                           </td>
                                           <td className="px-2 py-1.5 text-neutral-300">{event.source || "-"}</td>
                                           <td className="px-2 py-1.5 text-neutral-300">{event.target || "-"}</td>

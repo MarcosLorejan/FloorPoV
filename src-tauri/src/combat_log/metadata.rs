@@ -120,6 +120,7 @@ impl RecordingMetadataAccumulator {
                 source: None,
                 target: None,
                 target_kind: None,
+                ability_name: None,
                 zone_name: self.zone_name.clone(),
                 encounter_name: self.latest_encounter_name.clone(),
                 encounter_category: self.latest_encounter_category.clone(),
@@ -239,6 +240,7 @@ impl RecordingMetadataAccumulator {
             source: None,
             target: None,
             target_kind: None,
+            ability_name: None,
             zone_name: self.zone_name.clone(),
             encounter_name: self.latest_encounter_name.clone(),
             encounter_category: self.latest_encounter_category.clone(),
@@ -297,6 +299,7 @@ impl RecordingMetadataAccumulator {
             source: event.source.clone(),
             target: event.target.clone(),
             target_kind: event.target_kind.clone(),
+            ability_name: event.ability_name.clone(),
             zone_name: event.zone_name.clone(),
             encounter_name: event.encounter_name.clone(),
             encounter_category: event.encounter_category.clone(),
@@ -471,6 +474,9 @@ fn encounter_key(encounter_name: &str, encounter_category: &str) -> String {
     format!("{encounter_name}:{encounter_category}")
 }
 
+/// Structural events anchor the recording timeline and are rare enough to keep
+/// unconditionally. Frequent casts such as defensives stay in the capped pool so
+/// a long session cannot grow `.meta.json` without bound.
 fn is_structural_event_type(event_type: &str) -> bool {
     matches!(
         event_type,

@@ -1,4 +1,4 @@
-import { Flag, Heart, ShieldOff, Skull, Sword, Zap } from "lucide-react";
+import { Flag, Heart, Shield, ShieldOff, Skull, Sword, Zap } from "lucide-react";
 import { useMarker } from "../../contexts/MarkerContext";
 import { GameEvent } from "../../types/events";
 
@@ -27,6 +27,7 @@ const ICONS: Record<GameEvent["type"], React.ComponentType<{ className?: string 
   interrupt: ShieldOff,
   bloodlust: Zap,
   combatRes: Heart,
+  defensive: Shield,
 };
 
 const MARKER_CLASS_NAMES: Record<GameEvent["type"], Record<EventMarkerVariant, string>> = {
@@ -54,6 +55,10 @@ const MARKER_CLASS_NAMES: Record<GameEvent["type"], Record<EventMarkerVariant, s
     compact: "rounded-full bg-emerald-400 text-emerald-950",
     detailed: "rounded-full border border-emerald-200/40 bg-emerald-400 text-emerald-950",
   },
+  defensive: {
+    compact: "rounded-full bg-teal-400 text-teal-950",
+    detailed: "rounded-full border border-teal-200/40 bg-teal-400 text-teal-950",
+  },
 };
 
 export function EventMarker({ type, variant = "compact", className }: EventMarkerProps) {
@@ -75,6 +80,7 @@ const EVENT_TYPE_FILTER_LABELS: Record<GameEvent["type"], string> = {
   kill: "Kills",
   bloodlust: "Bloodlust",
   combatRes: "Combat Res",
+  defensive: "Defensives",
 };
 
 const DEFAULT_EVENT_TYPE_FILTERS: GameEvent["type"][] = ["death", "interrupt", "manual", "kill"];

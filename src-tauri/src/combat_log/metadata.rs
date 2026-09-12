@@ -238,6 +238,7 @@ impl RecordingMetadataAccumulator {
         self.important_events_dropped_count = 0;
         self.high_volume_events_in_buffer = 0;
         self.session_log_origin_seconds = None;
+        self.last_damage_by_dest.clear();
     }
 
     pub(crate) fn record_manual_marker(&mut self, elapsed_seconds: f64) {

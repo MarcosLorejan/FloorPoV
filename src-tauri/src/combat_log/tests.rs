@@ -210,14 +210,41 @@ fn attaches_killing_blow_amount_to_player_death() {
 }
 
 #[test]
+fn exact_killing_blow_does_not_emit_a_duplicate_big_hit() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    let damage_line = build_player_spell_damage_line("Player-1111-00000003", 1_000_000, 0);
+    accumulator.consume_combat_log_line(&damage_line, 8.0);
+
+    let death_line = build_player_death_line("2/22 20:15:19.000", "Player-1111-00000003");
+    accumulator.consume_combat_log_line(&death_line, 8.2);
+
+    let snapshot = accumulator.snapshot();
+    let death = snapshot
+        .important_events
+        .iter()
+        .find(|event| event.event_type == "UNIT_DIED")
+        .expect("death should be persisted");
+    assert_eq!(death.amount, Some(1_000_000));
+    assert!(
+        snapshot
+            .important_events
+            .iter()
+            .all(|event| event.event_type != "BIG_HIT"),
+        "exact killing blows (overkill 0) must not also persist as a big hit"
+    );
+}
+
+#[test]
 fn persists_player_big_hit_and_heal_markers() {
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.begin_recording_session(0.0);
 
-    let small_hit = build_player_spell_damage_line("Player-1111-00000003", 12_000, 0);
+    let small_hit = build_player_spell_damage_line("Player-1111-00000003", 12_000, -1);
     accumulator.consume_combat_log_line(&small_hit, 4.0);
 
-    let big_hit = build_player_spell_damage_line("Player-1111-00000003", 2_400_000, 0);
+    let big_hit = build_player_spell_damage_line("Player-1111-00000003", 2_400_000, -1);
     accumulator.consume_combat_log_line(&big_hit, 5.0);
 
     let npc_hit = build_line(
@@ -932,7 +959,7 @@ fn build_player_death_line(log_timestamp: &str, dest_guid: &str) -> String {
     )
 }
 
-fn build_player_spell_damage_line(dest_guid: &str, amount: u64, overkill: u64) -> String {
+fn build_player_spell_damage_line(dest_guid: &str, amount: u64, overkill: i64) -> String {
     build_line(
         "SPELL_DAMAGE",
         &[

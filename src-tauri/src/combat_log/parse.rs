@@ -293,13 +293,15 @@ pub(crate) fn parse_combat_amount_sample(line: &str) -> Option<CombatAmountSampl
     let source_flags = remaining_fields.get(2).copied();
     let source_kind = classify_unit_type(source_flags, source_guid);
 
+    // Combat log overkill is -1 when the target survives. 0 is an exact killing blow.
     let overkill = overkill_index
-        .and_then(|index| parse_combat_amount_field(remaining_fields.get(index).copied()))
-        .unwrap_or(0);
+        .map(|index| parse_combat_overkill_field(remaining_fields.get(index).copied()))
+        .unwrap_or(-1);
+    let is_killing_blow = kind == CombatAmountKind::Damage && overkill >= 0;
     let persist_as_marker = target_kind.as_deref() == Some("PLAYER")
         && amount >= PLAYER_AMOUNT_MARKER_MIN
         && is_amount_marker_event(raw_event_type)
-        && (kind == CombatAmountKind::Heal || overkill == 0);
+        && !is_killing_blow;
 
     Some(CombatAmountSample {
         dest_guid,
@@ -345,7 +347,30 @@ fn parse_combat_amount_field(value: Option<&str>) -> Option<u64> {
         return Some(amount);
     }
 
-    raw.parse::<f64>().ok().map(|amount| amount as u64)
+    raw.parse::<f64>()
+        .ok()
+        .filter(|amount| amount.is_finite() && *amount >= 0.0)
+        .map(|amount| amount as u64)
+}
+
+fn parse_combat_overkill_field(value: Option<&str>) -> i64 {
+    let Some(raw) = value else {
+        return -1;
+    };
+    let raw = raw.trim().trim_matches('"');
+    if raw.is_empty() || raw == "nil" {
+        return -1;
+    }
+
+    if let Ok(overkill) = raw.parse::<i64>() {
+        return overkill;
+    }
+
+    raw.parse::<f64>()
+        .ok()
+        .filter(|amount| amount.is_finite())
+        .map(|amount| amount as i64)
+        .unwrap_or(-1)
 }
 
 fn normalize_important_event_type(event_type: &str, fields: &[String]) -> Option<&'static str> {

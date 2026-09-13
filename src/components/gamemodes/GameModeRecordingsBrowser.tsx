@@ -8,6 +8,7 @@ import { RecordingInfo } from "../../types/recording";
 import { type GameMode } from "../../types/ui";
 import { formatBytes, formatDate } from "../../utils/format";
 import { toPlaybackSource } from "../../utils/recording-playback";
+import { recordingMatchesSearchQuery } from "../../utils/recording-search";
 import { getRecordingDisplayTitle, isRecordingInGameMode } from "../../utils/recording-title";
 import { DeleteConfirmDialog } from "../ui/DeleteConfirmDialog";
 import { Input } from "../ui/Input";
@@ -62,22 +63,6 @@ function getDateThresholdUnixSeconds(dateRange: DateRangeFilter): number | null 
   }
 
   return null;
-}
-
-function toSearchText(recording: RecordingInfo): string {
-  const keyLevelText =
-    typeof recording.key_level === "number" ? `+${recording.key_level}` : "";
-
-  return [
-    recording.filename,
-    recording.zone_name,
-    recording.encounter_name,
-    recording.encounter_category,
-    keyLevelText,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
 }
 
 export function GameModeRecordingsBrowser({
@@ -136,7 +121,6 @@ export function GameModeRecordingsBrowser({
 
   const filteredRecordings = useMemo(() => {
     const threshold = getDateThresholdUnixSeconds(selectedDateRange);
-    const normalizedQuery = searchQuery.trim().toLowerCase();
 
     return modeRecordings.filter((recording) => {
       if (selectedZone !== "all" && recording.zone_name !== selectedZone) {
@@ -151,13 +135,13 @@ export function GameModeRecordingsBrowser({
         return false;
       }
 
-      if (normalizedQuery.length > 0 && !toSearchText(recording).includes(normalizedQuery)) {
+      if (!recordingMatchesSearchQuery(recording, searchQuery, gameMode)) {
         return false;
       }
 
       return true;
     });
-  }, [modeRecordings, searchQuery, selectedDateRange, selectedEncounter, selectedZone]);
+  }, [gameMode, modeRecordings, searchQuery, selectedDateRange, selectedEncounter, selectedZone]);
 
   useEffect(() => {
     setSearchQuery("");
@@ -264,7 +248,7 @@ export function GameModeRecordingsBrowser({
                 variant="filter"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder={`Search by ${copy.zoneLabel.toLowerCase()}, ${copy.encounterLabel.toLowerCase()}, filename`}
+                placeholder={`Search by title, ${copy.zoneLabel.toLowerCase()}, ${copy.encounterLabel.toLowerCase()}, or file name`}
               />
             </div>
 
@@ -328,7 +312,11 @@ export function GameModeRecordingsBrowser({
       ) : modeRecordings.length === 0 && !isLoading ? (
         <p className="text-xs text-neutral-400">No {gameMode.replace("-", " ")} sessions found yet.</p>
       ) : filteredRecordings.length === 0 && !isLoading ? (
-        <p className="text-xs text-neutral-400">No sessions match the current filters.</p>
+        <p className="text-xs text-neutral-400">
+          {searchQuery.trim().length > 0
+            ? "No sessions match your search or filters."
+            : "No sessions match the current filters."}
+        </p>
       ) : (
         <ul
           ref={recordingsListRef}

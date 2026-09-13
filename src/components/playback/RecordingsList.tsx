@@ -170,10 +170,14 @@ export function RecordingsList({
     handleSelectionControlMouseDown,
     updateSelectionAfterDelete,
   } = useRecordingSelection<RecordingInfo>({
-    recordings: filteredRecordings,
+    recordings: scopedRecordings,
+    visibleRecordings: filteredRecordings,
     isActionLocked,
     onPlainActivate: handleLoadRecording,
   });
+  const visibleSelectedCount = useMemo(() => {
+    return filteredRecordings.filter((recording) => selectedRecordingPathSet.has(recording.file_path)).length;
+  }, [filteredRecordings, selectedRecordingPathSet]);
 
   const handleDeleteRecording = useCallback((recording: RecordingInfo) => {
     if (isActionLocked) {
@@ -396,13 +400,13 @@ export function RecordingsList({
                 <label className="ml-2 inline-flex h-6 w-6 items-center justify-center">
                   <input
                     type="checkbox"
-                    checked={selectedRecordingCount > 0 && selectedRecordingCount === filteredRecordings.length}
+                    checked={visibleSelectedCount > 0 && visibleSelectedCount === filteredRecordings.length}
                     ref={(el) => {
                       if (el) {
-                        el.indeterminate = selectedRecordingCount > 0 && selectedRecordingCount < filteredRecordings.length;
+                        el.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < filteredRecordings.length;
                       }
                     }}
-                    onChange={selectedRecordingCount === filteredRecordings.length ? clearSelection : selectAll}
+                    onChange={visibleSelectedCount === filteredRecordings.length ? clearSelection : selectAll}
                     disabled={isActionLocked || filteredRecordings.length === 0}
                      className="h-3.5 w-3.5 rounded-sm border-white/30 bg-black/30 accent-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label={selectedRecordingCount === filteredRecordings.length ? "Deselect all recordings" : "Select all recordings"}

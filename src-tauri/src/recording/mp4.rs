@@ -3,17 +3,19 @@
 //! Live FFmpeg output uses fragmented MP4 (`empty_moov`) so a killed encoder still
 //! leaves a playable file. `+faststart` is avoided on the live encode because it
 //! rewrites the whole file at stop and can lose the trailer on a timeout. After a
-//! clean stop we remux to a regular MP4 so the player gets a real duration.
+//! clean stop we remux to a regular MP4 with `+faststart` so the WebView player
+//! can read duration without range requests.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 /// Walk at most this many top-level boxes. Live fMP4 finds `moov`/`moof` immediately;
-/// a remuxed file is `ftyp` + `mdat` + trailing `moov`.
+/// a remuxed library file is `ftyp` + `moov` + `mdat` after `+faststart`.
 const MAX_TOP_LEVEL_BOXES: usize = 10_000;
 
 pub(crate) const RECORDING_MOVFLAGS: &str = "+frag_keyframe+empty_moov+default_base_moof";
+pub(crate) const LIBRARY_MOVFLAGS: &str = "+faststart";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Mp4Probe {
@@ -164,7 +166,7 @@ fn box_contains_child<R: Read + Seek>(
 
 #[cfg(test)]
 mod tests {
-    use super::{probe_mp4_reader, Mp4Probe, RECORDING_MOVFLAGS};
+    use super::{probe_mp4_reader, Mp4Probe, LIBRARY_MOVFLAGS, RECORDING_MOVFLAGS};
     use std::io::Cursor;
 
     fn box_bytes(box_type: &[u8; 4], payload: &[u8]) -> Vec<u8> {
@@ -184,6 +186,11 @@ mod tests {
     }
 
     #[test]
+    fn library_movflags_put_the_movie_header_first() {
+        assert!(LIBRARY_MOVFLAGS.contains("faststart"));
+    }
+
+    #[test]
     fn empty_moov_without_moof_is_not_library_ready() {
         let mut moov_payload = box_bytes(b"mvhd", &[]);
         moov_payload.extend_from_slice(&box_bytes(b"mvex", &[]));
@@ -200,7 +207,7 @@ mod tests {
     #[test]
     fn live_fragments_are_usable_segments() {
         let mut bytes = box_bytes(b"ftyp", b"isom");
-        bytes.extend_from_slice(&box_bytes(b"moov", b""));
+        bytes.extend_from_slice(&box_bytes(b"moov", &box_bytes(b"mvex", &[])));
         bytes.extend_from_slice(&box_bytes(b"moof", b""));
         bytes.extend_from_slice(&box_bytes(b"mdat", &[0, 1, 2, 3]));
         let probe = probe_mp4_reader(Cursor::new(bytes));

@@ -20,6 +20,27 @@ export function formatUnitName(name?: string): string {
   return normalizedBaseName || "Unknown";
 }
 
+export function formatCompactAmount(amount?: number): string {
+  if (amount === undefined || !Number.isFinite(amount) || amount <= 0) {
+    return "";
+  }
+
+  const absoluteAmount = Math.abs(amount);
+  if (absoluteAmount >= 1_000_000) {
+    return `${trimCompactAmount(amount / 1_000_000)}M`;
+  }
+
+  if (absoluteAmount >= 1_000) {
+    return `${trimCompactAmount(amount / 1_000)}K`;
+  }
+
+  return String(Math.round(amount));
+}
+
+function trimCompactAmount(value: number): string {
+  return value.toFixed(1).replace(/\.0$/, "");
+}
+
 export function formatTime(seconds: number): string {
   if (!seconds || isNaN(seconds)) return "0:00";
   const mins = Math.floor(seconds / 60);
@@ -59,10 +80,24 @@ export function getEventTypeLabel(eventType: string): string {
       return "Bloodlust";
     case "COMBAT_RES":
       return "Combat Res";
+    case "DEFENSIVE":
+      return "Defensive";
+    case "BIG_HIT":
+      return "Big Hit";
+    case "HEAL":
+      return "Heal";
+    case "BOSS_ABILITY":
+      return "Boss Ability";
+    case "CROWD_CONTROL":
+      return "Crowd Control";
+    case "CROWD_CONTROL_BREAK":
+      return "Crowd Control Break";
     case "SPELL_DISPEL":
       return "Dispel";
     case "MANUAL_MARKER":
       return "Manual Marker";
+    case "NOTE":
+      return "Note";
     case "ENCOUNTER_START":
       return "Encounter Start";
     case "ENCOUNTER_END":

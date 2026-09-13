@@ -1,10 +1,32 @@
+export type GameEventType =
+  | "kill"
+  | "death"
+  | "manual"
+  | "interrupt"
+  | "bloodlust"
+  | "combatRes"
+  | "dispel"
+  | "defensive"
+  | "bigHit"
+  | "heal"
+  | "bossAbility"
+  | "crowdControl"
+  | "crowdControlBreak"
+  | "note";
+
 export interface GameEvent {
   id: string;
   timestamp: number;
-  type: "kill" | "death" | "manual" | "interrupt" | "bloodlust" | "combatRes";
+  type: GameEventType;
   source?: string;
   target?: string;
   targetKind?: string;
+  /** Dispelled aura or interrupted cast, when the combat log reports one. */
+  extraSpellName?: string;
+  amount?: number;
+  abilityName?: string;
+  name?: string;
+  note?: string;
 }
 
 export interface RecordingImportantEventMetadata {
@@ -14,10 +36,14 @@ export interface RecordingImportantEventMetadata {
   source?: string;
   target?: string;
   targetKind?: string;
+  extraSpellName?: string;
+  amount?: number;
+  abilityName?: string;
   zoneName?: string;
   encounterName?: string;
   encounterCategory?: string;
   keyLevel?: number;
+  name?: string;
 }
 
 export interface RecordingEncounterMetadata {
@@ -35,6 +61,12 @@ export interface RecordingPlayerMetadata {
   specId?: number;
 }
 
+export interface RecordingNoteMetadata {
+  id: string;
+  timestampSeconds: number;
+  text: string;
+}
+
 export interface RecordingMetadata {
   schemaVersion: number;
   recordingFile: string;
@@ -47,6 +79,7 @@ export interface RecordingMetadata {
   importantEventCounts?: Record<string, number>;
   importantEventsDroppedCount?: number;
   players?: RecordingPlayerMetadata[];
+  notes?: RecordingNoteMetadata[];
 }
 
 export interface CombatEvent {
@@ -54,6 +87,10 @@ export interface CombatEvent {
   eventType: string;
   source?: string;
   target?: string;
+  extraSpellName?: string;
+  amount?: number;
+  abilityName?: string;
+  name?: string;
 }
 
 export interface CombatTriggerEvent {
@@ -77,6 +114,7 @@ export interface ParsedCombatEvent {
   source?: string;
   target?: string;
   targetKind?: string;
+  abilityName?: string;
   zoneName?: string;
   encounterName?: string;
   encounterCategory?: "mythicPlus" | "raid" | "pvp" | "unknown";
@@ -92,15 +130,168 @@ export interface ParseCombatLogDebugResult {
   truncated: boolean;
 }
 
+export type ImportCombatLogMode = "overwrite" | "merge";
+
+export interface ImportCombatLogResult {
+  recordingPath: string;
+  mode: ImportCombatLogMode;
+  importedEventCount: number;
+  totalEventCount: number;
+  backupPath?: string | null;
+}
+
 export const EVENT_SEEK_OFFSET_SECONDS = 5;
+export const MANUAL_MARKER_NAME_MAX_LENGTH = 64;
+export const MANUAL_MARKER_TIMESTAMP_EPSILON_SECONDS = 0.05;
+
+/** 0-based index among manual markers in the same timestamp window, matching sidecar order. */
+export function manualMarkerOccurrenceIndex(
+  events: GameEvent[],
+  targetEvent: GameEvent,
+): number {
+  let occurrence = 0;
+
+  for (const event of events) {
+    if (event.type !== "manual") {
+      continue;
+    }
+
+    if (Math.abs(event.timestamp - targetEvent.timestamp) > MANUAL_MARKER_TIMESTAMP_EPSILON_SECONDS) {
+      continue;
+    }
+
+    if (event.id === targetEvent.id) {
+      return occurrence;
+    }
+
+    occurrence += 1;
+  }
+
+  return 0;
+}
+
+export function normalizeManualMarkerName(value: string | undefined | null): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const collapsed = value.trim().replace(/\s+/g, " ");
+  if (!collapsed) {
+    return undefined;
+  }
+
+  return Array.from(collapsed).slice(0, MANUAL_MARKER_NAME_MAX_LENGTH).join("");
+}
+
+export function getManualMarkerLabel(event: Pick<GameEvent, "name">): string {
+  return event.name ?? "Manual marker";
+}
+
+export function shouldPromptManualMarkerName(): boolean {
+  if (typeof document === "undefined") {
+    return false;
+  }
+
+  return document.visibilityState === "visible" && document.hasFocus();
+}
+
+function eventActorName(name?: string): string {
+  const trimmedName = name?.trim();
+  return trimmedName ? trimmedName : "Unknown";
+}
+
+function describeSourceTargetAction(event: GameEvent, verb: string): string {
+  const source = eventActorName(event.source);
+  const target = eventActorName(event.target);
+
+  if (event.extraSpellName) {
+    return `${source} ${verb} ${event.extraSpellName} from ${target}`;
+  }
+
+  return `${source} ${verb} ${target}`;
+}
+
+export function getGameEventDescription(event: GameEvent): string {
+  if (event.type === "death") {
+    return `${eventActorName(event.target)} died`;
+  }
+
+  if (event.type === "manual") {
+    return "User marked this moment";
+  }
+
+  if (event.type === "interrupt") {
+    return describeSourceTargetAction(event, "interrupted");
+  }
+
+  if (event.type === "dispel") {
+    return describeSourceTargetAction(event, "dispelled");
+  }
+
+  if (event.type === "bloodlust") {
+    return `${eventActorName(event.source)} used Bloodlust`;
+  }
+
+  if (event.type === "combatRes") {
+    return `${eventActorName(event.source)} combat ressed ${eventActorName(event.target)}`;
+  }
+
+  if (event.type === "defensive") {
+    const source = eventActorName(event.source);
+    const ability = event.abilityName ?? "Unknown";
+    if (event.target && event.target !== event.source) {
+      return `${source} used ${ability} on ${eventActorName(event.target)}`;
+    }
+
+    return `${source} used ${ability}`;
+  }
+
+  if (event.type === "bigHit") {
+    return `${eventActorName(event.source)} hit ${eventActorName(event.target)}`;
+  }
+
+  if (event.type === "heal") {
+    return `${eventActorName(event.source)} healed ${eventActorName(event.target)}`;
+  }
+
+  if (event.type === "bossAbility") {
+    return `${eventActorName(event.source)} cast ${event.abilityName ?? "Unknown"}`;
+  }
+
+  if (event.type === "note") {
+    const noteText = event.note ?? "Review note";
+    if (noteText.length <= 80) {
+      return noteText;
+    }
+
+    return `${noteText.slice(0, 77)}...`;
+  }
+
+  if (event.type === "crowdControl") {
+    return `${eventActorName(event.source)} landed ${event.abilityName ?? "crowd control"} on ${eventActorName(event.target)}`;
+  }
+
+  if (event.type === "crowdControlBreak") {
+    return `${eventActorName(event.source)} broke ${event.abilityName ?? "crowd control"} on ${eventActorName(event.target)}`;
+  }
+
+  return `${eventActorName(event.source)} killed ${eventActorName(event.target)}`;
+}
 
 const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
   "PARTY_KILL",
   "UNIT_DIED",
   "MANUAL_MARKER",
   "SPELL_INTERRUPT",
+  "SPELL_DISPEL",
   "BLOODLUST",
   "COMBAT_RES",
+  "DEFENSIVE",
+  "BIG_HIT",
+  "HEAL",
+  "BOSS_ABILITY",
+  "CROWD_CONTROL",
+  "CROWD_CONTROL_BREAK",
 ]);
 
 const NPC_KINDS = new Set(["NPC", "PET", "GUARDIAN", "UNKNOWN"]);
@@ -126,7 +317,7 @@ export function isPlayerKind(targetKind: string | undefined, target?: string): b
   return PLAYER_KINDS.has(resolvedKind);
 }
 
-function mapEventTypeToGameEventType(eventType: string): GameEvent["type"] {
+function mapEventTypeToGameEventType(eventType: string): GameEventType {
   if (eventType === "PARTY_KILL") {
     return "kill";
   }
@@ -139,6 +330,10 @@ function mapEventTypeToGameEventType(eventType: string): GameEvent["type"] {
     return "interrupt";
   }
 
+  if (eventType === "SPELL_DISPEL") {
+    return "dispel";
+  }
+
   if (eventType === "BLOODLUST") {
     return "bloodlust";
   }
@@ -147,17 +342,107 @@ function mapEventTypeToGameEventType(eventType: string): GameEvent["type"] {
     return "combatRes";
   }
 
+  if (eventType === "DEFENSIVE") {
+    return "defensive";
+  }
+
+  if (eventType === "BIG_HIT") {
+    return "bigHit";
+  }
+
+  if (eventType === "HEAL") {
+    return "heal";
+  }
+
+  if (eventType === "BOSS_ABILITY") {
+    return "bossAbility";
+  }
+
+  if (eventType === "CROWD_CONTROL") {
+    return "crowdControl";
+  }
+
+  if (eventType === "CROWD_CONTROL_BREAK") {
+    return "crowdControlBreak";
+  }
+
   return "manual";
+}
+
+export function convertRecordingNoteToGameEvent(note: RecordingNoteMetadata): GameEvent | null {
+  if (!note.id.trim()) {
+    return null;
+  }
+
+  if (!Number.isFinite(note.timestampSeconds) || note.timestampSeconds < 0) {
+    return null;
+  }
+
+  const text = note.text.trim();
+  if (!text) {
+    return null;
+  }
+
+  return {
+    id: note.id,
+    timestamp: note.timestampSeconds,
+    type: "note",
+    note: text,
+  };
+}
+
+export function isCrowdControlEventType(type: GameEventType): boolean {
+  return type === "crowdControl" || type === "crowdControlBreak";
+}
+
+const DUPLICATE_EVENT_WINDOW_SECONDS = 2;
+
+// Crowd control reapplies and multi-target casts land as separate log lines, so the
+// window is wider than for cooldown usages to keep one entry per lockdown.
+const CROWD_CONTROL_DUPLICATE_WINDOW_SECONDS = 3;
+
+function isDeduplicatedEventType(type: GameEventType): boolean {
+  return (
+    type === "bloodlust" ||
+    type === "combatRes" ||
+    type === "defensive" ||
+    type === "bossAbility" ||
+    isCrowdControlEventType(type)
+  );
+}
+
+function isDuplicateOfEvent(existingEvent: GameEvent, event: GameEvent): boolean {
+  if (existingEvent.type !== event.type) {
+    return false;
+  }
+
+  if (isCrowdControlEventType(event.type)) {
+    return (
+      Math.abs(existingEvent.timestamp - event.timestamp) <
+        CROWD_CONTROL_DUPLICATE_WINDOW_SECONDS &&
+      existingEvent.target === event.target &&
+      existingEvent.abilityName === event.abilityName
+    );
+  }
+
+  if (event.type === "defensive" || event.type === "bossAbility") {
+    return (
+      Math.abs(existingEvent.timestamp - event.timestamp) < DUPLICATE_EVENT_WINDOW_SECONDS &&
+      existingEvent.source === event.source &&
+      existingEvent.abilityName === event.abilityName
+    );
+  }
+
+  return (
+    Math.abs(existingEvent.timestamp - event.timestamp) < DUPLICATE_EVENT_WINDOW_SECONDS &&
+    existingEvent.source === event.source
+  );
 }
 
 export function convertRecordingMetadataToGameEvents(
   metadata: RecordingMetadata | null,
 ): GameEvent[] {
-  if (!metadata?.importantEvents?.length) {
-    return [];
-  }
-
-  return metadata.importantEvents
+  const combatEvents = (metadata?.importantEvents ?? [])
     .flatMap((importantEvent, index) => {
       if (!SUPPORTED_PLAYBACK_EVENT_TYPES.has(importantEvent.eventType)) {
         return [];
@@ -174,21 +459,21 @@ export function convertRecordingMetadataToGameEvents(
         source: importantEvent.source,
         target: importantEvent.target,
         targetKind: importantEvent.targetKind,
+        extraSpellName: importantEvent.extraSpellName,
+        amount: importantEvent.amount,
+        abilityName: importantEvent.abilityName,
+        name: normalizeManualMarkerName(importantEvent.name),
       }];
     })
     .sort((a, b) => a.timestamp - b.timestamp)
     .reduce<GameEvent[]>((uniqueEvents, event) => {
-      if (event.type !== "bloodlust" && event.type !== "combatRes") {
+      if (!isDeduplicatedEventType(event.type)) {
         uniqueEvents.push(event);
         return uniqueEvents;
       }
 
       const hasNearbyDuplicate = uniqueEvents.some((existingEvent) => {
-        return (
-          existingEvent.type === event.type &&
-          existingEvent.source === event.source &&
-          Math.abs(existingEvent.timestamp - event.timestamp) < 2
-        );
+        return isDuplicateOfEvent(existingEvent, event);
       });
 
       if (!hasNearbyDuplicate) {
@@ -197,6 +482,30 @@ export function convertRecordingMetadataToGameEvents(
 
       return uniqueEvents;
     }, []);
+
+  const noteEvents = (metadata?.notes ?? []).flatMap((note) => {
+    const gameEvent = convertRecordingNoteToGameEvent(note);
+    return gameEvent ? [gameEvent] : [];
+  });
+
+  return [...combatEvents, ...noteEvents].sort((left, right) => left.timestamp - right.timestamp);
+}
+
+export function recordingMetadataHasCombatContent(metadata: RecordingMetadata | null): boolean {
+  if (!metadata) {
+    return false;
+  }
+
+  return Boolean(
+    metadata.zoneName ||
+      metadata.encounterName ||
+      metadata.encounterCategory ||
+      metadata.keyLevel ||
+      metadata.encounters?.length ||
+      metadata.importantEvents?.length ||
+      metadata.players?.length ||
+      metadata.importantEventsDroppedCount,
+  );
 }
 
 export function isVideoSeekBarEvent(event: GameEvent): boolean {
@@ -204,22 +513,45 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
     event.type === "death" ||
     event.type === "manual" ||
     event.type === "interrupt" ||
+    event.type === "dispel" ||
     event.type === "bloodlust" ||
-    event.type === "combatRes"
+    event.type === "combatRes" ||
+    event.type === "defensive" ||
+    event.type === "bigHit" ||
+    event.type === "heal" ||
+    event.type === "bossAbility" ||
+    isCrowdControlEventType(event.type) ||
+    event.type === "note"
   );
 }
 
 export function shouldShowGameEvent(
   event: GameEvent,
   hideNpcEvents: boolean,
-  eventTypeVisibility: Record<GameEvent["type"], boolean>,
+  eventTypeVisibility: Record<GameEventType, boolean>,
 ): boolean {
   if (!eventTypeVisibility[event.type]) {
     return false;
   }
 
   // These types are useful even when the dest unit is an NPC or the caster themselves.
-  if (event.type === "interrupt" || event.type === "bloodlust" || event.type === "combatRes") {
+  if (
+    event.type === "interrupt" ||
+    event.type === "dispel" ||
+    event.type === "bloodlust" ||
+    event.type === "combatRes" ||
+    event.type === "defensive" ||
+    event.type === "bigHit" ||
+    event.type === "heal" ||
+    event.type === "bossAbility" ||
+    event.type === "note"
+  ) {
+    return true;
+  }
+
+  // The backend only records crowd control landing on players, so the NPC filter would
+  // only ever drop entries whose target kind failed to resolve.
+  if (isCrowdControlEventType(event.type)) {
     return true;
   }
 
@@ -230,14 +562,28 @@ export function shouldShowGameEvent(
   return !isNpcKind(event.targetKind, event.target);
 }
 
+// Live events arrive one at a time and two markers can share a timestamp, so ids need a
+// sequence to stay unique. Renaming a marker targets the event by id, not by timestamp.
+let liveEventSequence = 0;
+
 export function convertCombatEvent(combatEvent: CombatEvent): GameEvent {
   const type = mapEventTypeToGameEventType(combatEvent.eventType);
+  liveEventSequence += 1;
+  const identity = [combatEvent.source, combatEvent.target, combatEvent.abilityName]
+    .filter(Boolean)
+    .join("-");
 
   return {
-    id: `${combatEvent.timestamp}-${combatEvent.eventType}`,
+    id: identity
+      ? `${combatEvent.eventType}-${combatEvent.timestamp}-live-${liveEventSequence}-${identity}`
+      : `${combatEvent.eventType}-${combatEvent.timestamp}-live-${liveEventSequence}`,
     timestamp: combatEvent.timestamp,
     type,
     source: combatEvent.source,
     target: combatEvent.target,
+    extraSpellName: combatEvent.extraSpellName,
+    amount: combatEvent.amount,
+    abilityName: combatEvent.abilityName,
+    name: normalizeManualMarkerName(combatEvent.name),
   };
 }

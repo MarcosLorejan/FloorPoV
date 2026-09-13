@@ -193,6 +193,8 @@ pub(crate) fn remux_to_library_mp4(
         .arg(output_path)
         .arg("-c")
         .arg("copy")
+        .arg("-movflags")
+        .arg(super::mp4::LIBRARY_MOVFLAGS)
         .arg(&temp_path)
         .status()
         .map_err(|error| format!("Failed to start FFmpeg remux process: {error}"))?;

@@ -70,30 +70,10 @@ export function formatEncounterCategory(category?: string): string {
 
 export function getEventTypeLabel(eventType: string): string {
   switch (eventType) {
-    case "PARTY_KILL":
-      return "Kill";
     case "UNIT_DIED":
       return "Death";
-    case "SPELL_INTERRUPT":
-      return "Interrupt";
     case "BLOODLUST":
       return "Bloodlust";
-    case "COMBAT_RES":
-      return "Combat Res";
-    case "DEFENSIVE":
-      return "Defensive";
-    case "BIG_HIT":
-      return "Big Hit";
-    case "HEAL":
-      return "Heal";
-    case "BOSS_ABILITY":
-      return "Boss Ability";
-    case "CROWD_CONTROL":
-      return "Crowd Control";
-    case "CROWD_CONTROL_BREAK":
-      return "Crowd Control Break";
-    case "SPELL_DISPEL":
-      return "Dispel";
     case "MANUAL_MARKER":
       return "Manual Marker";
     case "NOTE":

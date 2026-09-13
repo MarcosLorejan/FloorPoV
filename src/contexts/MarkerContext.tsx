@@ -9,19 +9,11 @@ import {
 } from "../types/events";
 
 const DEFAULT_EVENT_TYPE_VISIBILITY: Record<GameEventType, boolean> = {
-  kill: true,
   death: true,
   manual: true,
-  interrupt: true,
-  dispel: true,
   bloodlust: true,
-  combatRes: true,
-  defensive: true,
-  bigHit: true,
-  heal: true,
-  bossAbility: true,
-  crowdControl: true,
-  crowdControlBreak: true,
+  encounterStart: true,
+  encounterEnd: true,
   note: true,
 };
 

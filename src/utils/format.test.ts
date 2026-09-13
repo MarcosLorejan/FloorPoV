@@ -12,8 +12,10 @@ describe("formatCompactAmount", () => {
 });
 
 describe("getEventTypeLabel", () => {
-  test("labels amount markers", () => {
-    expect(getEventTypeLabel("BIG_HIT")).toBe("Big Hit");
-    expect(getEventTypeLabel("HEAL")).toBe("Heal");
+  test("labels review markers", () => {
+    expect(getEventTypeLabel("UNIT_DIED")).toBe("Death");
+    expect(getEventTypeLabel("BLOODLUST")).toBe("Bloodlust");
+    expect(getEventTypeLabel("ENCOUNTER_START")).toBe("Encounter Start");
+    expect(getEventTypeLabel("ENCOUNTER_END")).toBe("Encounter End");
   });
 });

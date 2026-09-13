@@ -886,9 +886,9 @@ mod tests {
         path
     }
 
-    fn party_kill_line(timestamp: &str, enemy_name: &str) -> String {
+    fn player_death_line(timestamp: &str, player_name: &str) -> String {
         format!(
-            "{timestamp}  PARTY_KILL,Player-1111-00000001,\"PlayerOne-NA\",0x514,0x0,Creature-0-0-0-0-1001-0000000000,\"{enemy_name}\",0x10a48,0x0"
+            "{timestamp}  UNIT_DIED,0000000000000000,nil,0x80000000,0x80000000,Player-1111-00000001,\"{player_name}\",0x512,0x80000000,0"
         )
     }
 
@@ -945,7 +945,7 @@ mod tests {
             "WoWCombatLog.txt",
             &format!(
                 "{}\n9/11/2026 17:52:01.123  SPELL_DAMAGE,Player-1-1,\"Mage",
-                party_kill_line("9/11/2026 17:52:01.000", "Enemy0")
+                player_death_line("9/11/2026 17:52:01.000", "Enemy0")
             ),
         );
         let error = parse_combat_log_file_to_snapshot(&log_path).expect_err("truncated log");
@@ -961,8 +961,8 @@ mod tests {
             "WoWCombatLog.txt",
             &format!(
                 "{}\n{}\n",
-                party_kill_line("9/11/2026 17:52:05.000", "Enemy0"),
-                party_kill_line("9/11/2026 17:52:30.000", "Enemy1")
+                player_death_line("9/11/2026 17:52:05.000", "Enemy0"),
+                player_death_line("9/11/2026 17:52:30.000", "Enemy1")
             ),
         );
         let snapshot = parse_combat_log_file_to_snapshot(&log_path).expect("parse");
@@ -974,9 +974,9 @@ mod tests {
 
     #[test]
     fn windows_long_log_to_recording_clock() {
-        let first = party_kill_line("9/11/2026 10:00:00.000", "Morning");
-        let matched = party_kill_line("9/11/2026 17:52:05.000", "Pull");
-        let later = party_kill_line("9/11/2026 17:52:20.000", "Later");
+        let first = player_death_line("9/11/2026 10:00:00.000", "Morning");
+        let matched = player_death_line("9/11/2026 17:52:05.000", "Pull");
+        let later = player_death_line("9/11/2026 17:52:20.000", "Later");
         let directory = unique_temp_directory();
         let log_path = write_log(
             &directory,
@@ -1011,8 +1011,8 @@ mod tests {
             "WoWCombatLog.txt",
             &format!(
                 "{}\n{}\n",
-                party_kill_line("9/10/2026 10:00:00.000", "A"),
-                party_kill_line("9/10/2026 18:00:00.000", "B")
+                player_death_line("9/10/2026 10:00:00.000", "A"),
+                player_death_line("9/10/2026 18:00:00.000", "B")
             ),
         );
         let snapshot = parse_combat_log_file_to_snapshot(&log_path).expect("parse");
@@ -1039,8 +1039,8 @@ mod tests {
             "WoWCombatLog.txt",
             &format!(
                 "{}\n{}\n",
-                party_kill_line("9/11/2026 17:52:05.000", "Enemy0"),
-                party_kill_line("9/11/2026 17:52:30.000", "Enemy1")
+                player_death_line("9/11/2026 17:52:05.000", "Enemy0"),
+                player_death_line("9/11/2026 17:52:30.000", "Enemy1")
             ),
         );
 
@@ -1058,7 +1058,7 @@ mod tests {
         let kills: Vec<_> = loaded
             .important_events
             .iter()
-            .filter(|event| event.event_type == "PARTY_KILL")
+            .filter(|event| event.event_type == "UNIT_DIED")
             .collect();
         assert_eq!(kills.len(), 2);
         assert!((kills[0].timestamp_seconds - 4.0).abs() < 0.01);
@@ -1074,7 +1074,10 @@ mod tests {
         let log_path = write_log(
             &directory,
             "WoWCombatLog.txt",
-            &format!("{}\n", party_kill_line("9/11/2026 17:52:05.000", "Enemy0")),
+            &format!(
+                "{}\n",
+                player_death_line("9/11/2026 17:52:05.000", "Enemy0")
+            ),
         );
 
         let error = import_combat_log_onto_recording_inner(
@@ -1157,7 +1160,7 @@ mod tests {
                 target: None,
                 target_kind: None,
                 extra_spell_name: None,
-            ability_name: None,
+                ability_name: None,
                 amount: None,
                 zone_name: None,
                 encounter_name: None,
@@ -1173,7 +1176,7 @@ mod tests {
                 target: Some("OldPlayer".to_string()),
                 target_kind: Some("PLAYER".to_string()),
                 extra_spell_name: None,
-            ability_name: None,
+                ability_name: None,
                 amount: None,
                 zone_name: Some("Old Zone".to_string()),
                 encounter_name: None,
@@ -1189,8 +1192,8 @@ mod tests {
             "WoWCombatLog.txt",
             &format!(
                 "{}\n{}\n",
-                party_kill_line("9/11/2026 17:52:05.000", "Enemy0"),
-                party_kill_line("9/11/2026 17:52:20.000", "Enemy1")
+                player_death_line("9/11/2026 17:52:05.000", "Enemy0"),
+                player_death_line("9/11/2026 17:52:20.000", "Enemy1")
             ),
         );
 
@@ -1221,14 +1224,10 @@ mod tests {
             loaded
                 .important_events
                 .iter()
-                .filter(|event| event.event_type == "PARTY_KILL")
+                .filter(|event| event.event_type == "UNIT_DIED")
                 .count(),
             2
         );
-        assert!(loaded
-            .important_events
-            .iter()
-            .all(|event| event.event_type != "UNIT_DIED"));
 
         std::fs::remove_dir_all(&directory).ok();
     }
@@ -1261,7 +1260,10 @@ mod tests {
         let log_path = write_log(
             &directory,
             "WoWCombatLog.txt",
-            &format!("{}\n", party_kill_line("9/11/2026 17:52:05.000", "Enemy0")),
+            &format!(
+                "{}\n",
+                player_death_line("9/11/2026 17:52:05.000", "Enemy0")
+            ),
         );
 
         let result = import_combat_log_onto_recording_inner(
@@ -1276,17 +1278,13 @@ mod tests {
         let loaded = read_recording_metadata(&recording_path)
             .expect("read")
             .expect("sidecar");
-        assert!(loaded
-            .important_events
-            .iter()
-            .any(|event| event.event_type == "PARTY_KILL"));
         assert_eq!(
             loaded
                 .important_events
                 .iter()
                 .filter(|event| event.event_type == "UNIT_DIED")
                 .count(),
-            1
+            2
         );
 
         std::fs::remove_dir_all(&directory).ok();
@@ -1302,8 +1300,8 @@ mod tests {
             "WoWCombatLog.txt",
             &format!(
                 "{}\n{}\n",
-                party_kill_line("9/10/2026 10:00:00.000", "A"),
-                party_kill_line("9/10/2026 18:00:00.000", "B")
+                player_death_line("9/10/2026 10:00:00.000", "A"),
+                player_death_line("9/10/2026 18:00:00.000", "B")
             ),
         );
 

@@ -56,10 +56,12 @@ impl RecordingMetadataAccumulator {
         self.capture_combatant_info_snapshot(line);
         self.capture_player_names_for_known_roster(line);
 
-        let amount_event = self.ingest_combat_amount_line(line, elapsed_seconds);
+        if let Some(sample) = parse_combat_amount_sample(line) {
+            self.note_last_damage(&sample);
+        }
 
         let Some(mut parsed_event) = parse_important_combat_event(line, &mut self.context) else {
-            return amount_event;
+            return None;
         };
 
         if parsed_event.event_type == "UNIT_DIED" {
@@ -344,23 +346,6 @@ impl RecordingMetadataAccumulator {
         });
     }
 
-    fn ingest_combat_amount_line(
-        &mut self,
-        line: &str,
-        elapsed_seconds: f64,
-    ) -> Option<ImportantCombatEvent> {
-        let sample = parse_combat_amount_sample(line)?;
-        self.note_last_damage(&sample);
-
-        if !self.recording_active || !sample.persist_as_marker {
-            return None;
-        }
-
-        let amount_event = self.amount_sample_as_event(sample);
-        self.record_important_event(&amount_event, elapsed_seconds);
-        Some(amount_event)
-    }
-
     fn note_last_damage(&mut self, sample: &CombatAmountSample) {
         if sample.kind != CombatAmountKind::Damage {
             return;
@@ -368,39 +353,6 @@ impl RecordingMetadataAccumulator {
 
         self.last_damage_by_dest
             .insert(sample.dest_guid.clone(), sample.amount);
-    }
-
-    fn amount_sample_as_event(&self, sample: CombatAmountSample) -> ImportantCombatEvent {
-        let event_type = match sample.kind {
-            CombatAmountKind::Damage => "BIG_HIT",
-            CombatAmountKind::Heal => "HEAL",
-        };
-
-        ImportantCombatEvent {
-            raw_event_type: sample.raw_event_type,
-            log_timestamp: sample.log_timestamp,
-            event_type: event_type.to_string(),
-            source: sample.source,
-            target: sample.target,
-            target_kind: sample.target_kind,
-            extra_spell_name: None,
-            dest_guid: Some(sample.dest_guid),
-            amount: Some(sample.amount),
-            ability_name: None,
-            zone_name: self
-                .zone_name
-                .clone()
-                .or_else(|| self.context.current_zone.clone()),
-            encounter_name: self
-                .latest_encounter_name
-                .clone()
-                .or_else(|| self.context.current_encounter.clone()),
-            encounter_category: self
-                .latest_encounter_category
-                .clone()
-                .or_else(|| self.context.current_encounter_category.clone()),
-            key_level: self.key_level.or(self.context.current_key_level),
-        }
     }
 
     pub(crate) fn set_manual_marker_name(
@@ -585,18 +537,12 @@ fn encounter_key(encounter_name: &str, encounter_category: &str) -> String {
 }
 
 /// Structural events anchor the recording timeline and are rare enough to keep
-/// unconditionally. Frequent casts such as defensives stay in the capped pool so
-/// a long session cannot grow `.meta.json` without bound.
+/// unconditionally. Player deaths stay in the capped pool so a long session
+/// cannot grow `.meta.json` without bound.
 fn is_structural_event_type(event_type: &str) -> bool {
     matches!(
         event_type,
-        EVENT_MANUAL_MARKER
-            | EVENT_ENCOUNTER_START
-            | EVENT_ENCOUNTER_END
-            | "BLOODLUST"
-            | "COMBAT_RES"
-            | "CROWD_CONTROL"
-            | "CROWD_CONTROL_BREAK"
+        EVENT_MANUAL_MARKER | EVENT_ENCOUNTER_START | EVENT_ENCOUNTER_END | "BLOODLUST"
     )
 }
 

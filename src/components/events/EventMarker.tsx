@@ -1,16 +1,9 @@
 import {
-  Crosshair,
+  CircleStop,
   Flag,
-  Heart,
-  HeartPulse,
-  Shield,
-  ShieldOff,
   Skull,
-  Snowflake,
-  Sparkles,
   StickyNote,
-  Sword,
-  Unlock,
+  Swords,
   Zap,
 } from "lucide-react";
 import { useMarker } from "../../contexts/MarkerContext";
@@ -35,27 +28,15 @@ const ICON_CLASS_NAMES: Record<EventMarkerVariant, string> = {
 };
 
 const ICONS: Record<GameEventType, React.ComponentType<{ className?: string }>> = {
-  kill: Sword,
   death: Skull,
   manual: Flag,
-  interrupt: ShieldOff,
-  dispel: Sparkles,
   bloodlust: Zap,
-  combatRes: Heart,
-  defensive: Shield,
-  bigHit: Crosshair,
-  heal: HeartPulse,
-  bossAbility: Sparkles,
-  crowdControl: Snowflake,
-  crowdControlBreak: Unlock,
+  encounterStart: Swords,
+  encounterEnd: CircleStop,
   note: StickyNote,
 };
 
 const MARKER_CLASS_NAMES: Record<GameEventType, Record<EventMarkerVariant, string>> = {
-  kill: {
-    compact: "rounded-full bg-neutral-500 text-neutral-900",
-    detailed: "rounded-full border border-neutral-100/45 bg-neutral-500 text-neutral-900",
-  },
   death: {
     compact: "rounded-full bg-rose-500 text-rose-950",
     detailed: "rounded-full border border-rose-200/40 bg-rose-500 text-rose-950",
@@ -64,45 +45,17 @@ const MARKER_CLASS_NAMES: Record<GameEventType, Record<EventMarkerVariant, strin
     compact: "rounded-sm bg-neutral-400 text-neutral-900",
     detailed: "rounded-sm border border-neutral-100/55 bg-neutral-400 text-neutral-900",
   },
-  interrupt: {
-    compact: "rounded-full bg-amber-400 text-amber-950",
-    detailed: "rounded-full border border-amber-200/40 bg-amber-400 text-amber-950",
-  },
-  dispel: {
-    compact: "rounded-full bg-violet-400 text-violet-950",
-    detailed: "rounded-full border border-violet-200/40 bg-violet-400 text-violet-950",
-  },
   bloodlust: {
     compact: "rounded-full bg-sky-400 text-sky-950",
     detailed: "rounded-full border border-sky-200/40 bg-sky-400 text-sky-950",
   },
-  combatRes: {
-    compact: "rounded-full bg-emerald-400 text-emerald-950",
-    detailed: "rounded-full border border-emerald-200/40 bg-emerald-400 text-emerald-950",
-  },
-  defensive: {
-    compact: "rounded-full bg-cyan-400 text-cyan-950",
-    detailed: "rounded-full border border-cyan-200/40 bg-cyan-400 text-cyan-950",
-  },
-  bigHit: {
-    compact: "rounded-full bg-orange-400 text-orange-950",
-    detailed: "rounded-full border border-orange-200/40 bg-orange-400 text-orange-950",
-  },
-  heal: {
-    compact: "rounded-full bg-teal-400 text-teal-950",
-    detailed: "rounded-full border border-teal-200/40 bg-teal-400 text-teal-950",
-  },
-  bossAbility: {
+  encounterStart: {
     compact: "rounded-full bg-fuchsia-400 text-fuchsia-950",
     detailed: "rounded-full border border-fuchsia-200/40 bg-fuchsia-400 text-fuchsia-950",
   },
-  crowdControl: {
-    compact: "rounded-full bg-violet-400 text-violet-950",
-    detailed: "rounded-full border border-violet-200/40 bg-violet-400 text-violet-950",
-  },
-  crowdControlBreak: {
-    compact: "rounded-full bg-indigo-300 text-indigo-950",
-    detailed: "rounded-full border border-indigo-100/45 bg-indigo-300 text-indigo-950",
+  encounterEnd: {
+    compact: "rounded-full bg-neutral-300 text-neutral-900",
+    detailed: "rounded-full border border-neutral-100/45 bg-neutral-300 text-neutral-900",
   },
   note: {
     compact: "rounded-sm bg-violet-400 text-violet-950",
@@ -124,27 +77,20 @@ export function EventMarker({ type, variant = "compact", className }: EventMarke
 
 const EVENT_TYPE_FILTER_LABELS: Record<GameEventType, string> = {
   death: "Deaths",
-  interrupt: "Interrupts",
-  dispel: "Dispels",
   manual: "Markers",
-  kill: "Kills",
   bloodlust: "Bloodlust",
-  combatRes: "Combat Res",
-  defensive: "Defensives",
-  bigHit: "Big Hits",
-  heal: "Heals",
-  bossAbility: "Boss abilities",
-  crowdControl: "Crowd Control",
-  crowdControlBreak: "CC Breaks",
+  encounterStart: "Encounter start",
+  encounterEnd: "Encounter end",
   note: "Notes",
 };
 
 const DEFAULT_EVENT_TYPE_FILTERS: GameEventType[] = [
+  "encounterStart",
+  "encounterEnd",
   "death",
-  "interrupt",
-  "dispel",
+  "bloodlust",
   "manual",
-  "kill",
+  "note",
 ];
 
 interface EventTypeFilterProps {

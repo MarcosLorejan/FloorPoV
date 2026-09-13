@@ -1,17 +1,9 @@
 export type GameEventType =
-  | "kill"
   | "death"
   | "manual"
-  | "interrupt"
   | "bloodlust"
-  | "combatRes"
-  | "dispel"
-  | "defensive"
-  | "bigHit"
-  | "heal"
-  | "bossAbility"
-  | "crowdControl"
-  | "crowdControlBreak"
+  | "encounterStart"
+  | "encounterEnd"
   | "note";
 
 export interface GameEvent {
@@ -21,7 +13,6 @@ export interface GameEvent {
   source?: string;
   target?: string;
   targetKind?: string;
-  /** Dispelled aura or interrupted cast, when the combat log reports one. */
   extraSpellName?: string;
   amount?: number;
   abilityName?: string;
@@ -200,17 +191,6 @@ function eventActorName(name?: string): string {
   return trimmedName ? trimmedName : "Unknown";
 }
 
-function describeSourceTargetAction(event: GameEvent, verb: string): string {
-  const source = eventActorName(event.source);
-  const target = eventActorName(event.target);
-
-  if (event.extraSpellName) {
-    return `${source} ${verb} ${event.extraSpellName} from ${target}`;
-  }
-
-  return `${source} ${verb} ${target}`;
-}
-
 export function getGameEventDescription(event: GameEvent): string {
   if (event.type === "death") {
     return `${eventActorName(event.target)} died`;
@@ -220,42 +200,16 @@ export function getGameEventDescription(event: GameEvent): string {
     return "User marked this moment";
   }
 
-  if (event.type === "interrupt") {
-    return describeSourceTargetAction(event, "interrupted");
-  }
-
-  if (event.type === "dispel") {
-    return describeSourceTargetAction(event, "dispelled");
-  }
-
   if (event.type === "bloodlust") {
     return `${eventActorName(event.source)} used Bloodlust`;
   }
 
-  if (event.type === "combatRes") {
-    return `${eventActorName(event.source)} combat ressed ${eventActorName(event.target)}`;
+  if (event.type === "encounterStart") {
+    return `${event.name ?? "Encounter"} started`;
   }
 
-  if (event.type === "defensive") {
-    const source = eventActorName(event.source);
-    const ability = event.abilityName ?? "Unknown";
-    if (event.target && event.target !== event.source) {
-      return `${source} used ${ability} on ${eventActorName(event.target)}`;
-    }
-
-    return `${source} used ${ability}`;
-  }
-
-  if (event.type === "bigHit") {
-    return `${eventActorName(event.source)} hit ${eventActorName(event.target)}`;
-  }
-
-  if (event.type === "heal") {
-    return `${eventActorName(event.source)} healed ${eventActorName(event.target)}`;
-  }
-
-  if (event.type === "bossAbility") {
-    return `${eventActorName(event.source)} cast ${event.abilityName ?? "Unknown"}`;
+  if (event.type === "encounterEnd") {
+    return `${event.name ?? "Encounter"} ended`;
   }
 
   if (event.type === "note") {
@@ -267,35 +221,18 @@ export function getGameEventDescription(event: GameEvent): string {
     return `${noteText.slice(0, 77)}...`;
   }
 
-  if (event.type === "crowdControl") {
-    return `${eventActorName(event.source)} landed ${event.abilityName ?? "crowd control"} on ${eventActorName(event.target)}`;
-  }
-
-  if (event.type === "crowdControlBreak") {
-    return `${eventActorName(event.source)} broke ${event.abilityName ?? "crowd control"} on ${eventActorName(event.target)}`;
-  }
-
-  return `${eventActorName(event.source)} killed ${eventActorName(event.target)}`;
+  return getManualMarkerLabel(event);
 }
 
 const SUPPORTED_PLAYBACK_EVENT_TYPES = new Set([
-  "PARTY_KILL",
   "UNIT_DIED",
   "MANUAL_MARKER",
-  "SPELL_INTERRUPT",
-  "SPELL_DISPEL",
   "BLOODLUST",
-  "COMBAT_RES",
-  "DEFENSIVE",
-  "BIG_HIT",
-  "HEAL",
-  "BOSS_ABILITY",
-  "CROWD_CONTROL",
-  "CROWD_CONTROL_BREAK",
+  "ENCOUNTER_START",
+  "ENCOUNTER_END",
 ]);
 
 const NPC_KINDS = new Set(["NPC", "PET", "GUARDIAN", "UNKNOWN"]);
-const PLAYER_KINDS = new Set(["PLAYER"]);
 
 function inferTargetKind(target: string | undefined): string | undefined {
   if (!target) return undefined;
@@ -311,62 +248,35 @@ export function isNpcKind(targetKind: string | undefined, target?: string): bool
   return NPC_KINDS.has(resolvedKind);
 }
 
-export function isPlayerKind(targetKind: string | undefined, target?: string): boolean {
-  const resolvedKind = targetKind ?? inferTargetKind(target);
-  if (!resolvedKind) return false;
-  return PLAYER_KINDS.has(resolvedKind);
-}
-
 function mapEventTypeToGameEventType(eventType: string): GameEventType {
-  if (eventType === "PARTY_KILL") {
-    return "kill";
-  }
-
   if (eventType === "UNIT_DIED") {
     return "death";
-  }
-
-  if (eventType === "SPELL_INTERRUPT") {
-    return "interrupt";
-  }
-
-  if (eventType === "SPELL_DISPEL") {
-    return "dispel";
   }
 
   if (eventType === "BLOODLUST") {
     return "bloodlust";
   }
 
-  if (eventType === "COMBAT_RES") {
-    return "combatRes";
+  if (eventType === "ENCOUNTER_START") {
+    return "encounterStart";
   }
 
-  if (eventType === "DEFENSIVE") {
-    return "defensive";
-  }
-
-  if (eventType === "BIG_HIT") {
-    return "bigHit";
-  }
-
-  if (eventType === "HEAL") {
-    return "heal";
-  }
-
-  if (eventType === "BOSS_ABILITY") {
-    return "bossAbility";
-  }
-
-  if (eventType === "CROWD_CONTROL") {
-    return "crowdControl";
-  }
-
-  if (eventType === "CROWD_CONTROL_BREAK") {
-    return "crowdControlBreak";
+  if (eventType === "ENCOUNTER_END") {
+    return "encounterEnd";
   }
 
   return "manual";
+}
+
+function eventDisplayName(
+  eventType: GameEventType,
+  importantEvent: RecordingImportantEventMetadata,
+): string | undefined {
+  if (eventType === "encounterStart" || eventType === "encounterEnd") {
+    return importantEvent.encounterName ?? importantEvent.name;
+  }
+
+  return normalizeManualMarkerName(importantEvent.name);
 }
 
 export function convertRecordingNoteToGameEvent(note: RecordingNoteMetadata): GameEvent | null {
@@ -391,46 +301,15 @@ export function convertRecordingNoteToGameEvent(note: RecordingNoteMetadata): Ga
   };
 }
 
-export function isCrowdControlEventType(type: GameEventType): boolean {
-  return type === "crowdControl" || type === "crowdControlBreak";
-}
-
 const DUPLICATE_EVENT_WINDOW_SECONDS = 2;
 
-// Crowd control reapplies and multi-target casts land as separate log lines, so the
-// window is wider than for cooldown usages to keep one entry per lockdown.
-const CROWD_CONTROL_DUPLICATE_WINDOW_SECONDS = 3;
-
 function isDeduplicatedEventType(type: GameEventType): boolean {
-  return (
-    type === "bloodlust" ||
-    type === "combatRes" ||
-    type === "defensive" ||
-    type === "bossAbility" ||
-    isCrowdControlEventType(type)
-  );
+  return type === "bloodlust";
 }
 
 function isDuplicateOfEvent(existingEvent: GameEvent, event: GameEvent): boolean {
   if (existingEvent.type !== event.type) {
     return false;
-  }
-
-  if (isCrowdControlEventType(event.type)) {
-    return (
-      Math.abs(existingEvent.timestamp - event.timestamp) <
-        CROWD_CONTROL_DUPLICATE_WINDOW_SECONDS &&
-      existingEvent.target === event.target &&
-      existingEvent.abilityName === event.abilityName
-    );
-  }
-
-  if (event.type === "defensive" || event.type === "bossAbility") {
-    return (
-      Math.abs(existingEvent.timestamp - event.timestamp) < DUPLICATE_EVENT_WINDOW_SECONDS &&
-      existingEvent.source === event.source &&
-      existingEvent.abilityName === event.abilityName
-    );
   }
 
   return (
@@ -452,17 +331,18 @@ export function convertRecordingMetadataToGameEvents(
         return [];
       }
 
+      const type = mapEventTypeToGameEventType(importantEvent.eventType);
       return [{
         id: `${importantEvent.eventType}-${importantEvent.timestampSeconds}-${index}`,
         timestamp: importantEvent.timestampSeconds,
-        type: mapEventTypeToGameEventType(importantEvent.eventType),
+        type,
         source: importantEvent.source,
         target: importantEvent.target,
         targetKind: importantEvent.targetKind,
         extraSpellName: importantEvent.extraSpellName,
         amount: importantEvent.amount,
         abilityName: importantEvent.abilityName,
-        name: normalizeManualMarkerName(importantEvent.name),
+        name: eventDisplayName(type, importantEvent),
       }];
     })
     .sort((a, b) => a.timestamp - b.timestamp)
@@ -512,15 +392,9 @@ export function isVideoSeekBarEvent(event: GameEvent): boolean {
   return (
     event.type === "death" ||
     event.type === "manual" ||
-    event.type === "interrupt" ||
-    event.type === "dispel" ||
     event.type === "bloodlust" ||
-    event.type === "combatRes" ||
-    event.type === "defensive" ||
-    event.type === "bigHit" ||
-    event.type === "heal" ||
-    event.type === "bossAbility" ||
-    isCrowdControlEventType(event.type) ||
+    event.type === "encounterStart" ||
+    event.type === "encounterEnd" ||
     event.type === "note"
   );
 }
@@ -534,24 +408,13 @@ export function shouldShowGameEvent(
     return false;
   }
 
-  // These types are useful even when the dest unit is an NPC or the caster themselves.
   if (
-    event.type === "interrupt" ||
-    event.type === "dispel" ||
     event.type === "bloodlust" ||
-    event.type === "combatRes" ||
-    event.type === "defensive" ||
-    event.type === "bigHit" ||
-    event.type === "heal" ||
-    event.type === "bossAbility" ||
-    event.type === "note"
+    event.type === "encounterStart" ||
+    event.type === "encounterEnd" ||
+    event.type === "note" ||
+    event.type === "manual"
   ) {
-    return true;
-  }
-
-  // The backend only records crowd control landing on players, so the NPC filter would
-  // only ever drop entries whose target kind failed to resolve.
-  if (isCrowdControlEventType(event.type)) {
     return true;
   }
 
@@ -584,6 +447,9 @@ export function convertCombatEvent(combatEvent: CombatEvent): GameEvent {
     extraSpellName: combatEvent.extraSpellName,
     amount: combatEvent.amount,
     abilityName: combatEvent.abilityName,
-    name: normalizeManualMarkerName(combatEvent.name),
+    name:
+      type === "encounterStart" || type === "encounterEnd"
+        ? combatEvent.name
+        : normalizeManualMarkerName(combatEvent.name),
   };
 }

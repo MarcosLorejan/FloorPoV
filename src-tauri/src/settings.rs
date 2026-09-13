@@ -221,6 +221,35 @@ pub fn get_recording_metadata(
 }
 
 #[tauri::command]
+pub fn write_export_file(file_path: String, contents: String) -> Result<(), String> {
+    let path = Path::new(&file_path);
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
+
+    if extension.as_deref() != Some("md") && extension.as_deref() != Some("json") {
+        return Err("Export file must be .md or .json".to_string());
+    }
+
+    if let Some(parent_directory) = path.parent() {
+        if !parent_directory.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent_directory).map_err(|error| {
+                format!(
+                    "Failed to create export directory '{}': {error}",
+                    parent_directory.display()
+                )
+            })?;
+        }
+    }
+
+    std::fs::write(path, contents)
+        .map_err(|error| format!("Failed to write export file '{}': {error}", path.display()))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub fn save_recording_note(
     file_path: String,
     note_id: Option<String>,

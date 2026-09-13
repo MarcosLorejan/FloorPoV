@@ -117,6 +117,7 @@ pub fn run() {
             settings::get_folder_size,
             settings::get_recordings_list,
             settings::get_recording_metadata,
+            settings::write_export_file,
             settings::save_recording_note,
             settings::delete_recording_note,
             settings::delete_recording,

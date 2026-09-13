@@ -24,6 +24,7 @@ import { getRecordingDisplayTitle } from "../../utils/recording-title";
 import { GameEvents } from "../events/GameEvents";
 import { PlaybackEventList } from "../events/PlaybackEventList";
 import { CompareVideoPlayer } from "../playback/CompareVideoPlayer";
+import { ExportAnalysisReportButton } from "../playback/ExportAnalysisReportButton";
 import { VideoPlayer } from "../playback/VideoPlayer";
 import { TabControls, type TabControlItem } from "../ui/TabControls";
 import { GameModeRecordingsBrowser } from "./GameModeRecordingsBrowser";
@@ -279,16 +280,19 @@ export function GameModePage({ gameMode }: GameModePageProps) {
       ) : (
         <>
           <header className="border-b border-white/10 bg-(--surface-1) px-4 py-4 md:px-6">
-            <div className="flex items-center gap-3">
-              <Icon className="h-5 w-5 text-neutral-300" />
-              <div>
-                <h1 className="inline-flex items-center gap-2 text-lg font-semibold text-neutral-100">
-                  {config.analysisTitle}
-                </h1>
-                <p className="max-w-[60ch] truncate text-xs text-neutral-400">
-                  {getRecordingDisplayTitle(selectedRecording, gameMode)}
-                </p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <Icon className="h-5 w-5 shrink-0 text-neutral-300" />
+                <div className="min-w-0">
+                  <h1 className="inline-flex items-center gap-2 text-lg font-semibold text-neutral-100">
+                    {config.analysisTitle}
+                  </h1>
+                  <p className="max-w-[60ch] truncate text-xs text-neutral-400">
+                    {getRecordingDisplayTitle(selectedRecording, gameMode)}
+                  </p>
+                </div>
               </div>
+              <ExportAnalysisReportButton recordingPath={selectedRecording.file_path} />
             </div>
           </header>
           <TabControls

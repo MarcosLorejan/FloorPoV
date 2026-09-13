@@ -7,6 +7,7 @@ import { panelVariants, smoothTransition } from "../../lib/motion";
 import { MEDIA_SECTION_RESIZE_DELTA } from "../../types/settings";
 import { PlaybackEventList } from "../events/PlaybackEventList";
 import { CompareVideoPlayer } from "./CompareVideoPlayer";
+import { ExportAnalysisReportButton } from "./ExportAnalysisReportButton";
 import { RecordingsList } from "./RecordingsList";
 import { VideoPlayer } from "./VideoPlayer";
 
@@ -14,7 +15,7 @@ const IDLE_MEDIA_HEIGHT = 220;
 const MIN_ACTIVE_MEDIA_HEIGHT = 320;
 
 export function HomePage() {
-  const { videoSrc, isCompareMode } = useVideo();
+  const { videoSrc, loadedFilePath, isCompareMode } = useVideo();
   const { isRecording } = useRecording();
   const reduceMotion = useReducedMotion();
   const [isResizingMedia, setIsResizingMedia] = useState(false);
@@ -88,14 +89,19 @@ export function HomePage() {
       exit={reduceMotion ? undefined : "exit"}
       transition={smoothTransition}
     >
-      <header className="shrink-0 border-b border-white/10 bg-(--surface-1) px-4 py-3 md:px-6">
-        <h1 className="inline-flex items-center gap-2 text-lg font-semibold text-neutral-100">
-          <Clapperboard className="h-4 w-4 text-neutral-300" />
-          Library
-        </h1>
-        <p className="text-xs uppercase tracking-[0.12em] text-neutral-500">
-          {isCompareMode ? "Comparing two recordings" : "Play a recording from this folder"}
-        </p>
+      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-white/10 bg-(--surface-1) px-4 py-3 md:px-6">
+        <div>
+          <h1 className="inline-flex items-center gap-2 text-lg font-semibold text-neutral-100">
+            <Clapperboard className="h-4 w-4 text-neutral-300" />
+            Library
+          </h1>
+          <p className="text-xs uppercase tracking-[0.12em] text-neutral-500">
+            {isCompareMode ? "Comparing two recordings" : "Play a recording from this folder"}
+          </p>
+        </div>
+        {loadedFilePath && !isCompareMode && (
+          <ExportAnalysisReportButton recordingPath={loadedFilePath} />
+        )}
       </header>
 
       <section

@@ -32,7 +32,7 @@
 ### UI/UX
 
 - [x] Multiple video comparison view
-- [ ] Export analysis report
+- [x] Export analysis report
 - [ ] Custom event markers
 - [ ] Keyboard shortcuts
 - [x] Dark/light theme toggle
@@ -40,7 +40,7 @@
 ### Data Management
 
 - [ ] Video library/organization
-- [ ] Search and filter recordings
+- [x] Search and filter recordings
 - [ ] Tags and categories
 - [ ] Recent files list
 - [ ] Auto-import from recording folder

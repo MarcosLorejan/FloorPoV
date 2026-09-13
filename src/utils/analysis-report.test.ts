@@ -105,21 +105,34 @@ describe("analysis report contents", () => {
 
     expect(markdown).toContain("# Analysis Report");
     expect(markdown).toContain("Use WarcraftLogs for a full combat report.");
-    expect(markdown).toContain("voidscar-arena-14-20260908-1518.mp4");
-    expect(markdown).toContain("Voidscar Arena");
+    expect(markdown).toContain("`voidscar-arena-14-20260908-1518.mp4`");
+    expect(markdown).toContain("`Voidscar Arena`");
     expect(markdown).toContain("+14");
-    expect(markdown).toContain("Mythic+");
-    expect(markdown).toContain("| Tank\\|One | Warrior | Protection |");
-    expect(markdown).toContain("| Boss One | Mythic+ | 0:12 | 2:05 |");
-    expect(markdown).toContain("- SPELL_INTERRUPT: 3");
+    expect(markdown).toContain("`Mythic+`");
+    expect(markdown).toContain("| `Tank|One` | `Warrior` | `Protection` |");
+    expect(markdown).toContain("| `Boss One` | `Mythic+` | 0:12 | 2:05 |");
+    expect(markdown).toContain("- `SPELL_INTERRUPT`: 3");
     expect(markdown).toContain("2 high-volume events were dropped during buffering.");
-    expect(markdown).toContain("| 0:12 | SPELL_INTERRUPT | Kicker-Realm | Caster\\|Mob | Boss One |");
+    expect(markdown).toContain("| 0:12 | `SPELL_INTERRUPT` | `Kicker-Realm` | `Caster|Mob` | `Boss One` |");
+  });
+
+  test("wraps sidecar text so markdown viewers do not interpret links or headings", () => {
+    const markdown = buildAnalysisReportMarkdown(
+      {
+        ...sampleMetadata(),
+        zoneName: "[Click](https://evil.example)\n# Fake heading",
+      },
+      "fallback.mp4",
+    );
+
+    expect(markdown).toContain("`[Click](https://evil.example) # Fake heading`");
+    expect(markdown).not.toContain("](https://evil.example)\n#");
   });
 
   test("renders empty markdown sections when metadata is missing", () => {
     const markdown = buildAnalysisReportMarkdown(null, "capture.mp4");
 
-    expect(markdown).toContain("- File: capture.mp4");
+    expect(markdown).toContain("- File: `capture.mp4`");
     expect(markdown.match(/None recorded\./g)?.length).toBe(4);
   });
 

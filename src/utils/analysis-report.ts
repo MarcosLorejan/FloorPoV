@@ -99,10 +99,10 @@ export function buildAnalysisReportMarkdown(
     ``,
     `## Recording`,
     ``,
-    `- File: ${report.recordingFile}`,
+    `- File: ${escapeMarkdownInline(report.recordingFile)}`,
     `- Zone: ${formatOptionalText(report.zoneName)}`,
     `- Encounter: ${formatOptionalText(report.encounterName)}`,
-    `- Category: ${formatEncounterCategory(report.encounterCategory)}`,
+    `- Category: ${escapeMarkdownInline(formatEncounterCategory(report.encounterCategory))}`,
     `- Key level: ${formatKeyLevel(report.keyLevel)}`,
   ];
 
@@ -126,8 +126,8 @@ export function buildAnalysisReportMarkdown(
     lines,
     ["Name", "Category", "Start", "End"],
     report.encounters.map((encounter) => [
-      encounter.name,
-      formatEncounterCategory(encounter.category),
+      formatOptionalText(encounter.name),
+      escapeMarkdownInline(formatEncounterCategory(encounter.category)),
       formatOptionalSeconds(encounter.startedAtSeconds),
       formatOptionalSeconds(encounter.endedAtSeconds),
     ]),
@@ -146,7 +146,7 @@ export function buildAnalysisReportMarkdown(
     lines.push(`None recorded.`);
   } else {
     for (const [eventType, count] of sortedEventCounts) {
-      lines.push(`- ${getEventTypeLabel(eventType)}: ${count}`);
+      lines.push(`- ${escapeMarkdownInline(getEventTypeLabel(eventType))}: ${count}`);
     }
   }
 
@@ -163,7 +163,7 @@ export function buildAnalysisReportMarkdown(
     ["Time", "Event", "Source", "Target", "Encounter"],
     report.importantEvents.map((event) => [
       formatTime(event.timestampSeconds),
-      getEventTypeLabel(event.eventType),
+      escapeMarkdownInline(getEventTypeLabel(event.eventType)),
       formatOptionalText(event.source),
       formatOptionalText(event.target),
       formatOptionalText(event.encounterName),
@@ -186,9 +186,14 @@ export function buildAnalysisReportContents(
   return buildAnalysisReportMarkdown(metadata, recordingFile);
 }
 
+function escapeMarkdownInline(value: string): string {
+  const sanitized = value.replace(/\r?\n/g, " ").replace(/`/g, "'");
+  return `\`${sanitized}\``;
+}
+
 function formatOptionalText(value: string | undefined): string {
   const trimmedValue = value?.trim();
-  return trimmedValue ? trimmedValue : "—";
+  return trimmedValue ? escapeMarkdownInline(trimmedValue) : "—";
 }
 
 function formatKeyLevel(keyLevel: number | undefined): string {
@@ -202,10 +207,11 @@ function formatOptionalSeconds(value: number | undefined): string {
 function formatPlayerName(player: RecordingPlayerMetadata): string {
   const trimmedName = player.name?.trim();
   if (trimmedName) {
-    return trimmedName;
+    return escapeMarkdownInline(trimmedName);
   }
 
-  return player.guid || "—";
+  const trimmedGuid = player.guid?.trim();
+  return trimmedGuid ? escapeMarkdownInline(trimmedGuid) : "—";
 }
 
 function appendMarkdownTable(
@@ -227,5 +233,9 @@ function appendMarkdownTable(
 }
 
 function escapeMarkdownTableCell(value: string): string {
+  if (value.startsWith("`") && value.endsWith("`")) {
+    return value.replace(/\r?\n/g, " ");
+  }
+
   return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }

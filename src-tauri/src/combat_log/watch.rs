@@ -310,6 +310,7 @@ pub async fn emit_manual_marker(app_handle: AppHandle) -> Result<(), String> {
                 extra_spell_name: None,
                 amount: None,
                 ability_name: None,
+                name: None,
             };
             emit_combat_event(&app_handle, &event);
             persist_watch_metadata_if_configured(watch_state);

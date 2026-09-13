@@ -25,6 +25,8 @@ pub struct CombatEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<u64>,
     pub ability_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

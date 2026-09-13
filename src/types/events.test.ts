@@ -55,19 +55,11 @@ function metadataWithMarker(name?: string): RecordingMetadata {
 }
 
 const ALL_EVENT_TYPES_VISIBLE: Record<GameEventType, boolean> = {
-  kill: true,
   death: true,
   manual: true,
-  interrupt: true,
-  dispel: true,
   bloodlust: true,
-  combatRes: true,
-  defensive: true,
-  bigHit: true,
-  heal: true,
-  bossAbility: true,
-  crowdControl: true,
-  crowdControlBreak: true,
+  encounterStart: true,
+  encounterEnd: true,
   note: true,
 };
 
@@ -88,92 +80,6 @@ function metadataWithEvents(
     importantEvents,
   };
 }
-
-describe("defensive cooldown playback mapping", () => {
-  test("maps DEFENSIVE onto the seek bar with source and spell name", () => {
-    const events = convertRecordingMetadataToGameEvents(
-      metadataWithEvents([
-        {
-          timestampSeconds: 18,
-          eventType: "DEFENSIVE",
-          source: "MageOne-NA",
-          target: "MageOne-NA",
-          targetKind: "PLAYER",
-          abilityName: "Ice Block",
-        },
-      ]),
-    );
-
-    expect(events).toHaveLength(1);
-    expect(events[0]?.type).toBe("defensive");
-    expect(events[0]?.source).toBe("MageOne-NA");
-    expect(events[0]?.abilityName).toBe("Ice Block");
-    expect(isVideoSeekBarEvent(events[0]!)).toBe(true);
-  });
-
-  test("keeps personal defensives visible when NPC events are hidden", () => {
-    const event: GameEvent = {
-      id: "defensive-1",
-      timestamp: 18,
-      type: "defensive",
-      source: "MageOne-NA",
-      target: "MageOne-NA",
-      targetKind: "PLAYER",
-      abilityName: "Ice Block",
-    };
-
-    expect(shouldShowGameEvent(event, true, ALL_EVENT_TYPES_VISIBLE)).toBe(true);
-    expect(
-      shouldShowGameEvent(event, true, { ...ALL_EVENT_TYPES_VISIBLE, defensive: false }),
-    ).toBe(false);
-  });
-
-  test("collapses nearby duplicate defensives from the same source and spell", () => {
-    const events = convertRecordingMetadataToGameEvents(
-      metadataWithEvents([
-        {
-          timestampSeconds: 20,
-          eventType: "DEFENSIVE",
-          source: "DeathKnightOne-NA",
-          abilityName: "Icebound Fortitude",
-        },
-        {
-          timestampSeconds: 21.2,
-          eventType: "DEFENSIVE",
-          source: "DeathKnightOne-NA",
-          abilityName: "Icebound Fortitude",
-        },
-        {
-          timestampSeconds: 21.5,
-          eventType: "DEFENSIVE",
-          source: "DeathKnightOne-NA",
-          abilityName: "Anti-Magic Shell",
-        },
-      ]),
-    );
-
-    expect(events.map((event) => event.abilityName)).toEqual([
-      "Icebound Fortitude",
-      "Anti-Magic Shell",
-    ]);
-  });
-
-  test("copies ability name from live combat events", () => {
-    const event = convertCombatEvent({
-      timestamp: 22,
-      eventType: "DEFENSIVE",
-      source: "PriestOne-NA",
-      target: "TankOne-NA",
-      abilityName: "Pain Suppression",
-    });
-
-    expect(event.type).toBe("defensive");
-    expect(event.source).toBe("PriestOne-NA");
-    expect(event.target).toBe("TankOne-NA");
-    expect(event.abilityName).toBe("Pain Suppression");
-    expect(isVideoSeekBarEvent(event)).toBe(true);
-  });
-});
 
 describe("normalizeManualMarkerName", () => {
   test("collapses surrounding and repeated whitespace", () => {
@@ -208,102 +114,6 @@ describe("getManualMarkerLabel", () => {
 
   test("falls back to a generic label for unnamed markers", () => {
     expect(getManualMarkerLabel({})).toBe("Manual marker");
-  });
-});
-
-describe("boss ability playback mapping", () => {
-  test("maps BOSS_ABILITY onto the seek bar with ability name", () => {
-    const events = convertRecordingMetadataToGameEvents(
-      metadataWithEvents([
-        {
-          timestampSeconds: 42,
-          eventType: "BOSS_ABILITY",
-          source: "Queen Ansurek",
-          target: "PlayerOne",
-          targetKind: "PLAYER",
-          abilityName: "Devour",
-        },
-      ]),
-    );
-
-    expect(events).toHaveLength(1);
-    expect(events[0]?.type).toBe("bossAbility");
-    expect(events[0]?.source).toBe("Queen Ansurek");
-    expect(events[0]?.abilityName).toBe("Devour");
-    expect(events[0]?.target).toBe("PlayerOne");
-    expect(isVideoSeekBarEvent(events[0]!)).toBe(true);
-  });
-
-  test("does not stuff the ability name into target", () => {
-    const events = convertRecordingMetadataToGameEvents(
-      metadataWithEvents([
-        {
-          timestampSeconds: 10,
-          eventType: "BOSS_ABILITY",
-          source: "Sikran",
-          abilityName: "Phase Blades",
-        },
-      ]),
-    );
-
-    expect(events[0]?.abilityName).toBe("Phase Blades");
-    expect(events[0]?.target).toBeUndefined();
-  });
-
-  test("keeps boss abilities visible when NPC events are hidden", () => {
-    const event: GameEvent = {
-      id: "boss-1",
-      timestamp: 8,
-      type: "bossAbility",
-      source: "Queen Ansurek",
-      targetKind: "NPC",
-      abilityName: "Devour",
-    };
-
-    expect(shouldShowGameEvent(event, true, ALL_EVENT_TYPES_VISIBLE)).toBe(true);
-    expect(
-      shouldShowGameEvent(event, true, { ...ALL_EVENT_TYPES_VISIBLE, bossAbility: false }),
-    ).toBe(false);
-  });
-
-  test("collapses nearby duplicate boss abilities from the same source", () => {
-    const events = convertRecordingMetadataToGameEvents(
-      metadataWithEvents([
-        {
-          timestampSeconds: 20,
-          eventType: "BOSS_ABILITY",
-          source: "Queen Ansurek",
-          abilityName: "Devour",
-        },
-        {
-          timestampSeconds: 21.2,
-          eventType: "BOSS_ABILITY",
-          source: "Queen Ansurek",
-          abilityName: "Devour",
-        },
-        {
-          timestampSeconds: 30,
-          eventType: "BOSS_ABILITY",
-          source: "Queen Ansurek",
-          abilityName: "Abyssal Infusion",
-        },
-      ]),
-    );
-
-    expect(events.map((event) => event.abilityName)).toEqual(["Devour", "Abyssal Infusion"]);
-  });
-
-  test("copies ability name from live combat events", () => {
-    const event = convertCombatEvent({
-      timestamp: 15,
-      eventType: "BOSS_ABILITY",
-      source: "Plexus Sentinel",
-      abilityName: "Purifying Light",
-    });
-
-    expect(event.type).toBe("bossAbility");
-    expect(event.abilityName).toBe("Purifying Light");
-    expect(isVideoSeekBarEvent(event)).toBe(true);
   });
 });
 
@@ -368,115 +178,61 @@ describe("recordingMetadataHasCombatContent", () => {
 });
 
 describe("convertRecordingMetadataToGameEvents", () => {
-  test("maps SPELL_DISPEL onto the playback timeline with the dispelled spell", () => {
+  test("maps deaths, bloodlust, and encounter bounds onto the seek bar", () => {
     const events = convertRecordingMetadataToGameEvents(
       metadataWithEvents([
         {
-          timestampSeconds: 18,
-          eventType: "SPELL_DISPEL",
-          source: "ShamanOne-NA",
-          target: "Enemy5",
-          targetKind: "NPC",
-          extraSpellName: "Grounding Totem Effect",
+          timestampSeconds: 8,
+          eventType: "ENCOUNTER_START",
+          encounterName: "Queen Ansurek",
         },
+        {
+          timestampSeconds: 18,
+          eventType: "BLOODLUST",
+          source: "MageOne-NA",
+        },
+        {
+          timestampSeconds: 30,
+          eventType: "UNIT_DIED",
+          target: "DeadOne-NA",
+          targetKind: "PLAYER",
+          amount: 1_250_000,
+        },
+        {
+          timestampSeconds: 96,
+          eventType: "ENCOUNTER_END",
+          encounterName: "Queen Ansurek",
+        },
+      ]),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "encounterStart",
+      "bloodlust",
+      "death",
+      "encounterEnd",
+    ]);
+    expect(events[0]?.name).toBe("Queen Ansurek");
+    expect(events[2]?.amount).toBe(1_250_000);
+    expect(events.every((event) => isVideoSeekBarEvent(event))).toBe(true);
+  });
+
+  test("ignores combat-log action spam left in older sidecars", () => {
+    const events = convertRecordingMetadataToGameEvents(
+      metadataWithEvents([
+        { timestampSeconds: 10, eventType: "SPELL_INTERRUPT", source: "RogueOne-NA" },
+        { timestampSeconds: 11, eventType: "SPELL_DISPEL", source: "ShamanOne-NA" },
+        { timestampSeconds: 12, eventType: "DEFENSIVE", source: "MageOne-NA" },
+        { timestampSeconds: 13, eventType: "BOSS_ABILITY", source: "Queen Ansurek" },
+        { timestampSeconds: 14, eventType: "CROWD_CONTROL", source: "PaladinOne-NA" },
+        { timestampSeconds: 15, eventType: "BIG_HIT", source: "Boss" },
+        { timestampSeconds: 16, eventType: "PARTY_KILL", source: "PlayerOne-NA" },
+        { timestampSeconds: 17, eventType: "UNIT_DIED", target: "DeadOne-NA" },
       ]),
     );
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
-      id: "SPELL_DISPEL-18-0",
-      timestamp: 18,
-      type: "dispel",
-      source: "ShamanOne-NA",
-      target: "Enemy5",
-      targetKind: "NPC",
-      extraSpellName: "Grounding Totem Effect",
-    });
-  });
-
-  test("keeps interrupt extraSpellName for the interrupted cast", () => {
-    const events = convertRecordingMetadataToGameEvents(
-      metadataWithEvents([
-        {
-          timestampSeconds: 22,
-          eventType: "SPELL_INTERRUPT",
-          source: "RogueOne-NA",
-          target: "Enemy6",
-          extraSpellName: "Void Bolt",
-        },
-      ]),
-    );
-
-    expect(events[0]?.type).toBe("interrupt");
-    expect(events[0]?.extraSpellName).toBe("Void Bolt");
-  });
-
-  test("keeps compact amounts on deaths, big hits, and heals", () => {
-    const events = convertRecordingMetadataToGameEvents(
-      metadata({
-        importantEvents: [
-          {
-            timestampSeconds: 12,
-            eventType: "UNIT_DIED",
-            target: "DeadOne-NA",
-            targetKind: "PLAYER",
-            amount: 1_250_000,
-          },
-          {
-            timestampSeconds: 8,
-            eventType: "BIG_HIT",
-            source: "Boss",
-            target: "DeadOne-NA",
-            targetKind: "PLAYER",
-            amount: 2_400_000,
-          },
-          {
-            timestampSeconds: 9,
-            eventType: "HEAL",
-            source: "PriestOne-NA",
-            target: "DeadOne-NA",
-            targetKind: "PLAYER",
-            amount: 1_800_000,
-          },
-        ],
-      }),
-    );
-
-    expect(events).toEqual([
-      {
-        id: "BIG_HIT-8-1",
-        timestamp: 8,
-        type: "bigHit",
-        source: "Boss",
-        target: "DeadOne-NA",
-        targetKind: "PLAYER",
-        amount: 2_400_000,
-        abilityName: undefined,
-        name: undefined,
-      },
-      {
-        id: "HEAL-9-2",
-        timestamp: 9,
-        type: "heal",
-        source: "PriestOne-NA",
-        target: "DeadOne-NA",
-        targetKind: "PLAYER",
-        amount: 1_800_000,
-        abilityName: undefined,
-        name: undefined,
-      },
-      {
-        id: "UNIT_DIED-12-0",
-        timestamp: 12,
-        type: "death",
-        source: undefined,
-        target: "DeadOne-NA",
-        targetKind: "PLAYER",
-        amount: 1_250_000,
-        abilityName: undefined,
-        name: undefined,
-      },
-    ]);
+    expect(events[0]?.type).toBe("death");
   });
 
   test("carries the marker name from the sidecar", () => {
@@ -531,92 +287,30 @@ describe("convertRecordingMetadataToGameEvents", () => {
     ]);
   });
 
-  test("maps crowd control apply and break with ability names", () => {
+  test("collapses nearby duplicate bloodlust from the same source", () => {
     const events = convertRecordingMetadataToGameEvents(
       metadataWithEvents([
-        {
-          timestampSeconds: 16,
-          eventType: "CROWD_CONTROL",
-          source: "PaladinOne-NA",
-          target: "WarriorOne-NA",
-          targetKind: "PLAYER",
-          abilityName: "Hammer of Justice",
-        },
-        {
-          timestampSeconds: 18,
-          eventType: "CROWD_CONTROL_BREAK",
-          source: "RogueOne-NA",
-          target: "WarriorOne-NA",
-          targetKind: "PLAYER",
-          abilityName: "Hammer of Justice",
-        },
+        { timestampSeconds: 20, eventType: "BLOODLUST", source: "MageOne-NA" },
+        { timestampSeconds: 21.2, eventType: "BLOODLUST", source: "MageOne-NA" },
+        { timestampSeconds: 30, eventType: "BLOODLUST", source: "ShamanOne-NA" },
       ]),
     );
 
-    expect(events).toHaveLength(2);
-    expect(events[0]).toMatchObject({
-      type: "crowdControl",
-      source: "PaladinOne-NA",
-      target: "WarriorOne-NA",
-      abilityName: "Hammer of Justice",
-    });
-    expect(events[1]).toMatchObject({
-      type: "crowdControlBreak",
-      source: "RogueOne-NA",
-      target: "WarriorOne-NA",
-      abilityName: "Hammer of Justice",
-    });
-  });
-
-  test("dedupes nearby crowd control on the same target and ability", () => {
-    const events = convertRecordingMetadataToGameEvents(
-      metadataWithEvents([
-        {
-          timestampSeconds: 20,
-          eventType: "CROWD_CONTROL",
-          source: "MageOne-NA",
-          target: "WarriorOne-NA",
-          abilityName: "Frost Nova",
-        },
-        {
-          timestampSeconds: 21.5,
-          eventType: "CROWD_CONTROL",
-          source: "MageOne-NA",
-          target: "WarriorOne-NA",
-          abilityName: "Frost Nova",
-        },
-        {
-          timestampSeconds: 21.5,
-          eventType: "CROWD_CONTROL",
-          source: "MageOne-NA",
-          target: "PriestOne-NA",
-          abilityName: "Frost Nova",
-        },
-      ]),
-    );
-
-    expect(events).toHaveLength(2);
-    expect(events.map((event) => event.target)).toEqual(["WarriorOne-NA", "PriestOne-NA"]);
+    expect(events.map((event) => event.source)).toEqual(["MageOne-NA", "ShamanOne-NA"]);
   });
 });
 
 describe("convertCombatEvent", () => {
-  test("forwards live combat amounts", () => {
+  test("maps live encounter bounds with the encounter name", () => {
     expect(
       convertCombatEvent({
-        timestamp: 4.5,
-        eventType: "BIG_HIT",
-        source: "Boss",
-        target: "DeadOne-NA",
-        amount: 2_400_000,
+        timestamp: 8,
+        eventType: "ENCOUNTER_START",
+        name: "Plexus Sentinel",
       }),
     ).toMatchObject({
-      timestamp: 4.5,
-      type: "bigHit",
-      source: "Boss",
-      target: "DeadOne-NA",
-      amount: 2_400_000,
-      abilityName: undefined,
+      type: "encounterStart",
+      name: "Plexus Sentinel",
     });
   });
 
@@ -637,44 +331,10 @@ describe("convertCombatEvent", () => {
 
     expect(first.id).not.toBe(second.id);
   });
-
-  test("keeps ability names on live crowd control events", () => {
-    expect(
-      convertCombatEvent({
-        timestamp: 16,
-        eventType: "CROWD_CONTROL",
-        source: "PaladinOne-NA",
-        target: "WarriorOne-NA",
-        abilityName: "Hammer of Justice",
-      }),
-    ).toMatchObject({
-      type: "crowdControl",
-      source: "PaladinOne-NA",
-      target: "WarriorOne-NA",
-      abilityName: "Hammer of Justice",
-    });
-  });
 });
 
 describe("playback timeline visibility", () => {
-  test("includes dispels on the seek bar", () => {
-    expect(
-      isVideoSeekBarEvent({
-        id: "dispel-1",
-        timestamp: 10,
-        type: "dispel",
-      }),
-    ).toBe(true);
-  });
-
-  test("shows NPC dispels even when NPC kills are hidden", () => {
-    const npcDispel: GameEvent = {
-      id: "dispel-npc",
-      timestamp: 12,
-      type: "dispel",
-      target: "Enemy5",
-      targetKind: "NPC",
-    };
+  test("hides NPC deaths when that filter is on", () => {
     const npcDeath: GameEvent = {
       id: "death-npc",
       timestamp: 13,
@@ -682,46 +342,75 @@ describe("playback timeline visibility", () => {
       target: "Enemy5",
       targetKind: "NPC",
     };
+    const playerDeath: GameEvent = {
+      id: "death-player",
+      timestamp: 14,
+      type: "death",
+      target: "Tank-NA",
+      targetKind: "PLAYER",
+    };
 
-    expect(shouldShowGameEvent(npcDispel, true, ALL_EVENT_TYPES_VISIBLE)).toBe(true);
     expect(shouldShowGameEvent(npcDeath, true, ALL_EVENT_TYPES_VISIBLE)).toBe(false);
+    expect(shouldShowGameEvent(playerDeath, true, ALL_EVENT_TYPES_VISIBLE)).toBe(true);
   });
 
-  test("hides dispels when the type filter is off", () => {
+  test("keeps encounters and bloodlust visible when NPC events are hidden", () => {
     expect(
       shouldShowGameEvent(
-        { id: "dispel-hidden", timestamp: 4, type: "dispel" },
+        { id: "lust", timestamp: 8, type: "bloodlust", source: "MageOne-NA" },
+        true,
+        ALL_EVENT_TYPES_VISIBLE,
+      ),
+    ).toBe(true);
+    expect(
+      shouldShowGameEvent(
+        { id: "pull", timestamp: 1, type: "encounterStart", name: "Queen Ansurek" },
+        true,
+        ALL_EVENT_TYPES_VISIBLE,
+      ),
+    ).toBe(true);
+  });
+
+  test("hides deaths when the type filter is off", () => {
+    expect(
+      shouldShowGameEvent(
+        { id: "death-hidden", timestamp: 4, type: "death", targetKind: "PLAYER" },
         false,
-        { ...ALL_EVENT_TYPES_VISIBLE, dispel: false },
+        { ...ALL_EVENT_TYPES_VISIBLE, death: false },
       ),
     ).toBe(false);
   });
 });
 
 describe("getGameEventDescription", () => {
-  test("names the source, target, and dispelled spell", () => {
+  test("names the dead player", () => {
     expect(
       getGameEventDescription({
-        id: "dispel-1",
+        id: "death-1",
         timestamp: 18,
-        type: "dispel",
-        source: "ShamanOne-NA",
-        target: "Enemy5",
-        extraSpellName: "Grounding Totem Effect",
+        type: "death",
+        target: "TankOne-NA",
       }),
-    ).toBe("ShamanOne-NA dispelled Grounding Totem Effect from Enemy5");
+    ).toBe("TankOne-NA died");
   });
 
-  test("still describes a dispel when the extra spell is missing", () => {
+  test("names the encounter on start and end", () => {
     expect(
       getGameEventDescription({
-        id: "dispel-2",
-        timestamp: 9,
-        type: "dispel",
-        source: "PriestOne-NA",
-        target: "PriestTwo-NA",
+        id: "start-1",
+        timestamp: 1,
+        type: "encounterStart",
+        name: "Queen Ansurek",
       }),
-    ).toBe("PriestOne-NA dispelled PriestTwo-NA");
+    ).toBe("Queen Ansurek started");
+    expect(
+      getGameEventDescription({
+        id: "end-1",
+        timestamp: 96,
+        type: "encounterEnd",
+        name: "Queen Ansurek",
+      }),
+    ).toBe("Queen Ansurek ended");
   });
 });
 
@@ -759,40 +448,5 @@ describe("manualMarkerOccurrenceIndex", () => {
     expect(manualMarkerOccurrenceIndex(events, first)).toBe(0);
     expect(manualMarkerOccurrenceIndex(events, second)).toBe(1);
     expect(manualMarkerOccurrenceIndex(events, later)).toBe(0);
-  });
-});
-
-describe("crowd control playback visibility", () => {
-  const crowdControlEvent: GameEvent = {
-    id: "cc-1",
-    timestamp: 16,
-    type: "crowdControl",
-    source: "PaladinOne-NA",
-    target: "WarriorOne-NA",
-    abilityName: "Hammer of Justice",
-  };
-
-  test("shows crowd control on the seek bar", () => {
-    expect(isVideoSeekBarEvent(crowdControlEvent)).toBe(true);
-    expect(
-      isVideoSeekBarEvent({
-        ...crowdControlEvent,
-        id: "cc-break-1",
-        type: "crowdControlBreak",
-      }),
-    ).toBe(true);
-  });
-
-  test("keeps crowd control visible when NPC events are hidden", () => {
-    expect(shouldShowGameEvent(crowdControlEvent, true, ALL_EVENT_TYPES_VISIBLE)).toBe(true);
-  });
-
-  test("hides crowd control when that filter is off", () => {
-    expect(
-      shouldShowGameEvent(crowdControlEvent, true, {
-        ...ALL_EVENT_TYPES_VISIBLE,
-        crowdControl: false,
-      }),
-    ).toBe(false);
   });
 });

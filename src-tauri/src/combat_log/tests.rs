@@ -11,26 +11,26 @@ fn caps_high_volume_events_but_keeps_structural_events() {
     let encounter_start_line = build_line("ENCOUNTER_START", &["1", "\"Training Boss\"", "16"]);
     accumulator.consume_combat_log_line(&encounter_start_line, 0.5);
 
-    let total_party_kills = MAX_PERSISTED_HIGH_VOLUME_EVENTS + 25;
-    for index in 0..total_party_kills {
-        let party_kill_line = build_party_kill_line(index);
-        accumulator.consume_combat_log_line(&party_kill_line, 1.0 + index as f64);
+    let total_deaths = MAX_PERSISTED_HIGH_VOLUME_EVENTS + 25;
+    for index in 0..total_deaths {
+        let death_line = build_indexed_player_death_line(index);
+        accumulator.consume_combat_log_line(&death_line, 1.0 + index as f64);
     }
 
     let snapshot = accumulator.snapshot();
-    let buffered_party_kill_count = snapshot
+    let buffered_death_count = snapshot
         .important_events
         .iter()
-        .filter(|event| event.event_type == "PARTY_KILL")
+        .filter(|event| event.event_type == "UNIT_DIED")
         .count();
 
     assert_eq!(
-        buffered_party_kill_count, MAX_PERSISTED_HIGH_VOLUME_EVENTS,
-        "High-volume party kill events should be capped"
+        buffered_death_count, MAX_PERSISTED_HIGH_VOLUME_EVENTS,
+        "High-volume player death events should be capped"
     );
     assert_eq!(
-        snapshot.important_event_counts.get("PARTY_KILL").copied(),
-        Some(total_party_kills as u64),
+        snapshot.important_event_counts.get("UNIT_DIED").copied(),
+        Some(total_deaths as u64),
         "Counts should include all seen events, not only buffered events"
     );
     assert_eq!(
@@ -80,13 +80,13 @@ fn updates_zone_context_without_persisting_context_only_events() {
     let zone_line = build_line("ZONE_CHANGED", &["\"Nerub-ar Palace\""]);
     accumulator.consume_combat_log_line(&zone_line, 0.5);
 
-    let party_kill_line = build_party_kill_line(1);
-    accumulator.consume_combat_log_line(&party_kill_line, 1.0);
+    let death_line = build_indexed_player_death_line(1);
+    accumulator.consume_combat_log_line(&death_line, 1.0);
 
     let snapshot = accumulator.snapshot();
     assert_eq!(snapshot.zone_name.as_deref(), Some("Nerub-ar Palace"));
     assert_eq!(snapshot.important_events.len(), 1);
-    assert_eq!(snapshot.important_events[0].event_type, "PARTY_KILL");
+    assert_eq!(snapshot.important_events[0].event_type, "UNIT_DIED");
 }
 
 #[test]
@@ -97,13 +97,13 @@ fn captures_mythic_plus_key_level_from_challenge_start() {
     let challenge_start_line = build_line("CHALLENGE_MODE_START", &["2451", "2662", "505", "14"]);
     accumulator.consume_combat_log_line(&challenge_start_line, 0.25);
 
-    let party_kill_line = build_party_kill_line(1);
-    accumulator.consume_combat_log_line(&party_kill_line, 1.0);
+    let death_line = build_indexed_player_death_line(1);
+    accumulator.consume_combat_log_line(&death_line, 1.0);
 
     let snapshot = accumulator.snapshot();
     assert_eq!(snapshot.key_level, Some(14));
     assert_eq!(snapshot.important_events.len(), 1);
-    assert_eq!(snapshot.important_events[0].event_type, "PARTY_KILL");
+    assert_eq!(snapshot.important_events[0].event_type, "UNIT_DIED");
     assert_eq!(snapshot.important_events[0].key_level, Some(14));
 }
 
@@ -154,7 +154,7 @@ fn mythic_plus_keeps_dungeon_name_when_the_map_changes_to_a_floor() {
         &build_line("MAP_CHANGE", &["2813", "\"Augurs' Terrace\""]),
         1.0,
     );
-    accumulator.consume_combat_log_line(&build_party_kill_line(1), 2.0);
+    accumulator.consume_combat_log_line(&build_indexed_player_death_line(1), 2.0);
 
     let snapshot = accumulator.snapshot();
     assert_eq!(snapshot.zone_name.as_deref(), Some("Murder Row"));
@@ -196,6 +196,60 @@ fn records_bloodlust_from_time_warp_cast() {
         Some("MageOne-NA")
     );
 }
+#[test]
+fn ignores_interrupt_dispel_and_party_kill() {
+    let mut accumulator = RecordingMetadataAccumulator::default();
+    accumulator.begin_recording_session(0.0);
+
+    accumulator.consume_combat_log_line(&build_party_kill_line(1), 1.0);
+    accumulator.consume_combat_log_line(
+        &build_line(
+            "SPELL_INTERRUPT",
+            &[
+                "Player-1111-00000006",
+                "\"RogueOne-NA\"",
+                "0x514",
+                "0x0",
+                "Creature-0-0-0-0-1006-0000000000",
+                "\"Enemy6\"",
+                "0x10a48",
+                "0x0",
+                "1766",
+                "\"Kick\"",
+                "1",
+                "451234",
+                "\"Void Bolt\"",
+                "32",
+            ],
+        ),
+        2.0,
+    );
+    accumulator.consume_combat_log_line(
+        &build_line(
+            "SPELL_DISPEL",
+            &[
+                "Player-1111-00000005",
+                "\"ShamanOne-NA\"",
+                "0x514",
+                "0x0",
+                "Creature-0-0-0-0-1005-0000000000",
+                "\"Enemy5\"",
+                "0x10a48",
+                "0x0",
+                "370",
+                "\"Purge\"",
+                "8",
+                "12345",
+                "\"Grounding Totem Effect\"",
+                "8",
+            ],
+        ),
+        3.0,
+    );
+
+    let snapshot = accumulator.snapshot();
+    assert!(snapshot.important_events.is_empty());
+}
 
 fn build_spell_cast_success_line(
     source_guid: &str,
@@ -226,582 +280,6 @@ fn build_spell_cast_success_line(
 }
 
 #[test]
-fn records_defensive_from_ice_block_cast() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let ice_block_line = build_spell_cast_success_line(
-        "Player-1111-00000001",
-        "\"MageOne-NA\"",
-        "0x514",
-        "Player-1111-00000001",
-        "\"MageOne-NA\"",
-        "0x514",
-        "45438",
-        "\"Ice Block\"",
-    );
-    accumulator.consume_combat_log_line(&ice_block_line, 18.0);
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(snapshot.important_events.len(), 1);
-    assert_eq!(snapshot.important_events[0].event_type, "DEFENSIVE");
-    assert_eq!(
-        snapshot.important_events[0].source.as_deref(),
-        Some("MageOne-NA")
-    );
-    assert_eq!(
-        snapshot.important_events[0].ability_name.as_deref(),
-        Some("Ice Block")
-    );
-}
-
-#[test]
-fn records_external_defensive_pain_suppression() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let pain_suppression_line = build_spell_cast_success_line(
-        "Player-1111-00000004",
-        "\"PriestOne-NA\"",
-        "0x514",
-        "Player-1111-00000005",
-        "\"TankOne-NA\"",
-        "0x514",
-        "33206",
-        "\"Pain Suppression\"",
-    );
-    accumulator.consume_combat_log_line(&pain_suppression_line, 22.0);
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(snapshot.important_events.len(), 1);
-    assert_eq!(snapshot.important_events[0].event_type, "DEFENSIVE");
-    assert_eq!(
-        snapshot.important_events[0].source.as_deref(),
-        Some("PriestOne-NA")
-    );
-    assert_eq!(
-        snapshot.important_events[0].target.as_deref(),
-        Some("TankOne-NA")
-    );
-    assert_eq!(
-        snapshot.important_events[0].ability_name.as_deref(),
-        Some("Pain Suppression")
-    );
-}
-
-#[test]
-fn ignores_minor_absorb_barrier() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let ice_barrier_line = build_spell_cast_success_line(
-        "Player-1111-00000001",
-        "\"MageOne-NA\"",
-        "0x514",
-        "Player-1111-00000001",
-        "\"MageOne-NA\"",
-        "0x514",
-        "11426",
-        "\"Ice Barrier\"",
-    );
-    accumulator.consume_combat_log_line(&ice_barrier_line, 8.0);
-
-    let snapshot = accumulator.snapshot();
-    assert!(snapshot.important_events.is_empty());
-}
-
-#[test]
-fn ignores_npc_cast_with_defensive_spell_id() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let npc_ice_block_line = build_spell_cast_success_line(
-        "Creature-0-0-0-0-2001-0000000000",
-        "\"Training Dummy\"",
-        "0x10a48",
-        "Creature-0-0-0-0-2001-0000000000",
-        "\"Training Dummy\"",
-        "0x10a48",
-        "45438",
-        "\"Ice Block\"",
-    );
-    accumulator.consume_combat_log_line(&npc_ice_block_line, 9.0);
-
-    let snapshot = accumulator.snapshot();
-    assert!(snapshot.important_events.is_empty());
-}
-
-#[test]
-fn defensive_cast_emits_live_event_with_ability_name() {
-    let mut context = super::parse::DebugParseContext::default();
-    let ice_block_line = build_spell_cast_success_line(
-        "Player-1111-00000001",
-        "\"MageOne-NA\"",
-        "0x514",
-        "Player-1111-00000001",
-        "\"MageOne-NA\"",
-        "0x514",
-        "45438",
-        "\"Ice Block\"",
-    );
-    let parsed_event = parse_important_combat_event(&ice_block_line, &mut context)
-        .expect("ice block should parse as an important event");
-    let live_event = parsed_event
-        .into_live_event(Some(18.0))
-        .expect("defensive casts should emit live playback events");
-
-    assert_eq!(live_event.event_type, "DEFENSIVE");
-    assert_eq!(live_event.source.as_deref(), Some("MageOne-NA"));
-    assert_eq!(live_event.ability_name.as_deref(), Some("Ice Block"));
-}
-
-#[test]
-fn counts_every_defensive_cast_even_when_repeated() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    for (index, (spell_id, spell_name)) in [
-        ("48792", "\"Icebound Fortitude\""),
-        ("48707", "\"Anti-Magic Shell\""),
-        ("48792", "\"Icebound Fortitude\""),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let defensive_line = build_spell_cast_success_line(
-            "Player-1111-00000002",
-            "\"DeathKnightOne-NA\"",
-            "0x514",
-            "Player-1111-00000002",
-            "\"DeathKnightOne-NA\"",
-            "0x514",
-            spell_id,
-            spell_name,
-        );
-        accumulator.consume_combat_log_line(&defensive_line, 30.0 + index as f64 * 45.0);
-    }
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(
-        snapshot.important_event_counts.get("DEFENSIVE").copied(),
-        Some(3)
-    );
-    assert_eq!(snapshot.important_events.len(), 3);
-    assert_eq!(
-        snapshot.important_events[1].ability_name.as_deref(),
-        Some("Anti-Magic Shell")
-    );
-}
-
-#[test]
-fn caps_defensive_events_like_other_high_volume_events() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let overflow_count = 25;
-    let total_defensives = MAX_PERSISTED_HIGH_VOLUME_EVENTS + overflow_count;
-    let defensive_line = build_spell_cast_success_line(
-        "Player-1111-00000001",
-        "\"MageOne-NA\"",
-        "0x514",
-        "Player-1111-00000001",
-        "\"MageOne-NA\"",
-        "0x514",
-        "45438",
-        "\"Ice Block\"",
-    );
-    for index in 0..total_defensives {
-        accumulator.consume_combat_log_line(&defensive_line, 1.0 + index as f64);
-    }
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(
-        snapshot.important_events.len(),
-        MAX_PERSISTED_HIGH_VOLUME_EVENTS,
-        "Defensives are frequent, so they must respect the persisted event cap"
-    );
-    assert_eq!(
-        snapshot.important_event_counts.get("DEFENSIVE").copied(),
-        Some(total_defensives as u64)
-    );
-    assert_eq!(
-        snapshot.important_events_dropped_count, overflow_count as u64,
-        "Dropped count should reflect the trimmed defensives"
-    );
-}
-
-#[test]
-fn records_combat_res_from_spell_resurrect() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let combat_res_line = build_line(
-        "SPELL_RESURRECT",
-        &[
-            "Player-1111-00000002",
-            "\"DruidOne-NA\"",
-            "0x514",
-            "0x0",
-            "Player-1111-00000003",
-            "\"DeadOne-NA\"",
-            "0x514",
-            "0x0",
-            "20484",
-            "\"Rebirth\"",
-            "8",
-        ],
-    );
-    accumulator.consume_combat_log_line(&combat_res_line, 40.0);
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(snapshot.important_events.len(), 1);
-    assert_eq!(snapshot.important_events[0].event_type, "COMBAT_RES");
-    assert_eq!(
-        snapshot.important_events[0].source.as_deref(),
-        Some("DruidOne-NA")
-    );
-    assert_eq!(
-        snapshot.important_events[0].target.as_deref(),
-        Some("DeadOne-NA")
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_aura_line(
-    event_type: &str,
-    source_guid: &str,
-    source_name: &str,
-    source_flags: &str,
-    dest_guid: &str,
-    dest_name: &str,
-    dest_flags: &str,
-    spell_id: &str,
-    spell_name: &str,
-    extra_fields: &[&str],
-) -> String {
-    let mut fields = vec![
-        source_guid,
-        source_name,
-        source_flags,
-        "0x0",
-        dest_guid,
-        dest_name,
-        dest_flags,
-        "0x0",
-        spell_id,
-        spell_name,
-        "2",
-    ];
-    fields.extend_from_slice(extra_fields);
-    build_line(event_type, &fields)
-}
-
-#[test]
-fn records_crowd_control_apply_on_player() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let hammer_line = build_aura_line(
-        "SPELL_AURA_APPLIED",
-        "Player-1111-00000010",
-        "\"PaladinOne-NA\"",
-        "0x514",
-        "Player-1111-00000011",
-        "\"WarriorOne-NA\"",
-        "0x514",
-        "853",
-        "\"Hammer of Justice\"",
-        &["DEBUFF"],
-    );
-    accumulator.consume_combat_log_line(&hammer_line, 16.0);
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(snapshot.important_events.len(), 1);
-    assert_eq!(snapshot.important_events[0].event_type, "CROWD_CONTROL");
-    assert_eq!(
-        snapshot.important_events[0].source.as_deref(),
-        Some("PaladinOne-NA")
-    );
-    assert_eq!(
-        snapshot.important_events[0].target.as_deref(),
-        Some("WarriorOne-NA")
-    );
-    assert_eq!(
-        snapshot.important_events[0].target_kind.as_deref(),
-        Some("PLAYER")
-    );
-    assert_eq!(
-        snapshot.important_events[0].ability_name.as_deref(),
-        Some("Hammer of Justice")
-    );
-}
-
-#[test]
-fn records_crowd_control_break_on_player() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let break_line = build_aura_line(
-        "SPELL_AURA_BROKEN",
-        "Player-1111-00000012",
-        "\"RogueOne-NA\"",
-        "0x514",
-        "Player-1111-00000011",
-        "\"WarriorOne-NA\"",
-        "0x514",
-        "853",
-        "\"Hammer of Justice\"",
-        &["DEBUFF"],
-    );
-    accumulator.consume_combat_log_line(&break_line, 18.0);
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(snapshot.important_events.len(), 1);
-    assert_eq!(
-        snapshot.important_events[0].event_type,
-        "CROWD_CONTROL_BREAK"
-    );
-    assert_eq!(
-        snapshot.important_events[0].source.as_deref(),
-        Some("RogueOne-NA")
-    );
-    assert_eq!(
-        snapshot.important_events[0].target.as_deref(),
-        Some("WarriorOne-NA")
-    );
-    assert_eq!(
-        snapshot.important_events[0].ability_name.as_deref(),
-        Some("Hammer of Justice")
-    );
-}
-
-#[test]
-fn records_crowd_control_break_spell_on_player() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let break_spell_line = build_aura_line(
-        "SPELL_AURA_BROKEN_SPELL",
-        "Player-1111-00000012",
-        "\"RogueOne-NA\"",
-        "0x514",
-        "Player-1111-00000011",
-        "\"WarriorOne-NA\"",
-        "0x514",
-        "122",
-        "\"Frost Nova\"",
-        &["408", "\"Kidney Shot\"", "1", "DEBUFF"],
-    );
-    accumulator.consume_combat_log_line(&break_spell_line, 21.0);
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(snapshot.important_events.len(), 1);
-    assert_eq!(
-        snapshot.important_events[0].event_type,
-        "CROWD_CONTROL_BREAK"
-    );
-    assert_eq!(
-        snapshot.important_events[0].ability_name.as_deref(),
-        Some("Frost Nova")
-    );
-}
-
-#[test]
-fn records_affix_stun_on_player() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let quaking_line = build_aura_line(
-        "SPELL_AURA_APPLIED",
-        "Player-1111-00000011",
-        "\"WarriorOne-NA\"",
-        "0x514",
-        "Player-1111-00000011",
-        "\"WarriorOne-NA\"",
-        "0x514",
-        "240447",
-        "\"Quake\"",
-        &["DEBUFF"],
-    );
-    accumulator.consume_combat_log_line(&quaking_line, 30.0);
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(snapshot.important_events.len(), 1);
-    assert_eq!(snapshot.important_events[0].event_type, "CROWD_CONTROL");
-    assert_eq!(
-        snapshot.important_events[0].ability_name.as_deref(),
-        Some("Quake")
-    );
-}
-
-#[test]
-fn ignores_crowd_control_on_npc() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let roots_line = build_aura_line(
-        "SPELL_AURA_APPLIED",
-        "Player-1111-00000002",
-        "\"DruidOne-NA\"",
-        "0x514",
-        "Creature-0-0-0-0-1002-0000000000",
-        "\"Enemy1\"",
-        "0x10a48",
-        "339",
-        "\"Entangling Roots\"",
-        &["DEBUFF"],
-    );
-    accumulator.consume_combat_log_line(&roots_line, 9.0);
-
-    let snapshot = accumulator.snapshot();
-    assert!(snapshot.important_events.is_empty());
-}
-
-#[test]
-fn ignores_unrelated_player_debuff() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let moonfire_line = build_aura_line(
-        "SPELL_AURA_APPLIED",
-        "Player-1111-00000002",
-        "\"DruidOne-NA\"",
-        "0x514",
-        "Player-1111-00000011",
-        "\"WarriorOne-NA\"",
-        "0x514",
-        "164812",
-        "\"Moonfire\"",
-        &["DEBUFF"],
-    );
-    accumulator.consume_combat_log_line(&moonfire_line, 10.0);
-
-    let snapshot = accumulator.snapshot();
-    assert!(snapshot.important_events.is_empty());
-}
-
-#[test]
-fn ignores_crowd_control_spell_applied_as_buff() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let hammer_buff_line = build_aura_line(
-        "SPELL_AURA_APPLIED",
-        "Player-1111-00000010",
-        "\"PaladinOne-NA\"",
-        "0x514",
-        "Player-1111-00000011",
-        "\"WarriorOne-NA\"",
-        "0x514",
-        "853",
-        "\"Hammer of Justice\"",
-        &["BUFF"],
-    );
-    accumulator.consume_combat_log_line(&hammer_buff_line, 16.0);
-
-    let snapshot = accumulator.snapshot();
-    assert!(snapshot.important_events.is_empty());
-}
-
-#[test]
-fn ignores_polymorph_incapacitate_on_player() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let polymorph_line = build_aura_line(
-        "SPELL_AURA_APPLIED",
-        "Player-1111-00000001",
-        "\"MageOne-NA\"",
-        "0x514",
-        "Player-1111-00000011",
-        "\"WarriorOne-NA\"",
-        "0x514",
-        "118",
-        "\"Polymorph\"",
-        &["DEBUFF"],
-    );
-    accumulator.consume_combat_log_line(&polymorph_line, 11.0);
-
-    let snapshot = accumulator.snapshot();
-    assert!(snapshot.important_events.is_empty());
-}
-
-#[test]
-fn crowd_control_apply_emits_live_event_with_ability_name() {
-    let mut context = super::parse::DebugParseContext::default();
-    let hammer_line = build_aura_line(
-        "SPELL_AURA_APPLIED",
-        "Player-1111-00000010",
-        "\"PaladinOne-NA\"",
-        "0x514",
-        "Player-1111-00000011",
-        "\"WarriorOne-NA\"",
-        "0x514",
-        "853",
-        "\"Hammer of Justice\"",
-        &["DEBUFF"],
-    );
-    let parsed_event = parse_important_combat_event(&hammer_line, &mut context)
-        .expect("player stun apply should parse as an important event");
-    let live_event = parsed_event
-        .into_live_event(Some(16.0))
-        .expect("crowd control applies should emit live playback events");
-
-    assert_eq!(live_event.event_type, "CROWD_CONTROL");
-    assert_eq!(live_event.source.as_deref(), Some("PaladinOne-NA"));
-    assert_eq!(live_event.target.as_deref(), Some("WarriorOne-NA"));
-    assert_eq!(
-        live_event.ability_name.as_deref(),
-        Some("Hammer of Justice")
-    );
-}
-
-#[test]
-fn records_dispel_with_the_dispelled_spell() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let dispel_line = build_line(
-        "SPELL_DISPEL",
-        &[
-            "Player-1111-00000005",
-            "\"ShamanOne-NA\"",
-            "0x514",
-            "0x0",
-            "Creature-0-0-0-0-1005-0000000000",
-            "\"Enemy5\"",
-            "0x10a48",
-            "0x0",
-            "370",
-            "\"Purge\"",
-            "8",
-            "8178",
-            "\"Grounding Totem Effect\"",
-            "8",
-            "BUFF",
-        ],
-    );
-    accumulator.consume_combat_log_line(&dispel_line, 18.0);
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(snapshot.important_events.len(), 1);
-
-    let dispel_event = &snapshot.important_events[0];
-    assert_eq!(dispel_event.event_type, "SPELL_DISPEL");
-    assert_eq!(dispel_event.source.as_deref(), Some("ShamanOne-NA"));
-    assert_eq!(dispel_event.target.as_deref(), Some("Enemy5"));
-    assert_eq!(dispel_event.target_kind.as_deref(), Some("NPC"));
-    assert_eq!(
-        dispel_event.extra_spell_name.as_deref(),
-        Some("Grounding Totem Effect")
-    );
-    assert_eq!(
-        snapshot.important_event_counts.get("SPELL_DISPEL").copied(),
-        Some(1)
-    );
-}
-
-#[test]
 fn attaches_killing_blow_amount_to_player_death() {
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.begin_recording_session(0.0);
@@ -825,43 +303,6 @@ fn attaches_killing_blow_amount_to_player_death() {
             .iter()
             .all(|event| event.event_type != "BIG_HIT"),
         "killing blows should stay on the death marker instead of a separate big hit"
-    );
-}
-
-#[test]
-fn records_interrupt_with_the_interrupted_spell() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let interrupt_line = build_line(
-        "SPELL_INTERRUPT",
-        &[
-            "Player-1111-00000006",
-            "\"RogueOne-NA\"",
-            "0x514",
-            "0x0",
-            "Creature-0-0-0-0-1006-0000000000",
-            "\"Enemy6\"",
-            "0x10a48",
-            "0x0",
-            "1766",
-            "\"Kick\"",
-            "1",
-            "451234",
-            "\"Void Bolt\"",
-            "32",
-        ],
-    );
-    accumulator.consume_combat_log_line(&interrupt_line, 22.0);
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(snapshot.important_events.len(), 1);
-
-    let interrupt_event = &snapshot.important_events[0];
-    assert_eq!(interrupt_event.event_type, "SPELL_INTERRUPT");
-    assert_eq!(
-        interrupt_event.extra_spell_name.as_deref(),
-        Some("Void Bolt")
     );
 }
 
@@ -893,127 +334,6 @@ fn exact_killing_blow_does_not_emit_a_duplicate_big_hit() {
 }
 
 #[test]
-fn keeps_dispel_without_a_reported_extra_spell() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let truncated_dispel_line = build_line(
-        "SPELL_DISPEL",
-        &[
-            "Player-1111-00000007",
-            "\"PriestOne-NA\"",
-            "0x514",
-            "0x0",
-            "Player-1111-00000008",
-            "\"PriestTwo-NA\"",
-            "0x514",
-            "0x0",
-            "527",
-            "\"Purify\"",
-            "2",
-            "0",
-        ],
-    );
-    accumulator.consume_combat_log_line(&truncated_dispel_line, 9.0);
-
-    let snapshot = accumulator.snapshot();
-    assert_eq!(snapshot.important_events.len(), 1);
-
-    let dispel_event = &snapshot.important_events[0];
-    assert_eq!(dispel_event.event_type, "SPELL_DISPEL");
-    assert_eq!(dispel_event.target.as_deref(), Some("PriestTwo-NA"));
-    assert_eq!(dispel_event.extra_spell_name, None);
-}
-
-#[test]
-fn persists_player_big_hit_and_heal_markers() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let small_hit = build_player_spell_damage_line("Player-1111-00000003", 12_000, -1);
-    accumulator.consume_combat_log_line(&small_hit, 4.0);
-
-    let big_hit = build_player_spell_damage_line("Player-1111-00000003", 2_400_000, -1);
-    accumulator.consume_combat_log_line(&big_hit, 5.0);
-
-    let npc_hit = build_line(
-        "SPELL_DAMAGE",
-        &[
-            "Player-1111-00000001",
-            "\"MageOne-NA\"",
-            "0x514",
-            "0x0",
-            "Creature-0-0-0-0-1002-0000000000",
-            "\"Enemy1\"",
-            "0x10a48",
-            "0x0",
-            "133",
-            "\"Fireball\"",
-            "4",
-            "3000000",
-            "0",
-            "4",
-            "0",
-            "0",
-            "0",
-            "nil",
-        ],
-    );
-    accumulator.consume_combat_log_line(&npc_hit, 5.5);
-
-    let periodic = build_line(
-        "SPELL_PERIODIC_DAMAGE",
-        &[
-            "Creature-0-0-0-0-2000-0000000000",
-            "\"Boss\"",
-            "0x10a48",
-            "0x0",
-            "Player-1111-00000003",
-            "\"DeadOne-NA\"",
-            "0x514",
-            "0x0",
-            "589",
-            "\"Shadow Word: Pain\"",
-            "32",
-            "1500000",
-            "0",
-            "32",
-            "0",
-            "0",
-            "0",
-            "nil",
-        ],
-    );
-    accumulator.consume_combat_log_line(&periodic, 6.0);
-
-    let big_heal = build_player_spell_heal_line("Player-1111-00000003", 1_800_000);
-    accumulator.consume_combat_log_line(&big_heal, 7.0);
-
-    let snapshot = accumulator.snapshot();
-    let big_hits: Vec<_> = snapshot
-        .important_events
-        .iter()
-        .filter(|event| event.event_type == "BIG_HIT")
-        .collect();
-    let heals: Vec<_> = snapshot
-        .important_events
-        .iter()
-        .filter(|event| event.event_type == "HEAL")
-        .collect();
-
-    assert_eq!(
-        big_hits.len(),
-        1,
-        "only the surviving player spike should persist"
-    );
-    assert_eq!(big_hits[0].amount, Some(2_400_000));
-    assert_eq!(big_hits[0].target.as_deref(), Some("DeadOne-NA"));
-    assert_eq!(heals.len(), 1);
-    assert_eq!(heals[0].amount, Some(1_800_000));
-    assert_eq!(heals[0].target.as_deref(), Some("DeadOne-NA"));
-}
-
-#[test]
 fn ignores_unrelated_spell_cast_success() {
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.begin_recording_session(0.0);
@@ -1040,309 +360,6 @@ fn ignores_unrelated_spell_cast_success() {
     assert!(snapshot.important_events.is_empty());
 }
 
-fn build_untargeted_spell_cast_success_line(
-    source_guid: &str,
-    source_name: &str,
-    source_flags: &str,
-    spell_id: &str,
-    spell_name: &str,
-) -> String {
-    build_spell_cast_success_line(
-        source_guid,
-        &format!("\"{source_name}\""),
-        source_flags,
-        "0000000000000000",
-        "nil",
-        "0x80000000",
-        spell_id,
-        &format!("\"{spell_name}\""),
-    )
-}
-
-#[test]
-fn records_boss_ability_when_source_matches_encounter() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-    accumulator.consume_combat_log_line(
-        &build_line("ENCOUNTER_START", &["1", "\"Queen Ansurek\"", "16"]),
-        1.0,
-    );
-
-    accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
-            "Creature-0-0-0-0-2001-0000000000",
-            "Queen Ansurek",
-            "0x10a48",
-            "443403",
-            "Devour",
-        ),
-        12.0,
-    );
-
-    let snapshot = accumulator.snapshot();
-    let boss_abilities: Vec<_> = snapshot
-        .important_events
-        .iter()
-        .filter(|event| event.event_type == "BOSS_ABILITY")
-        .collect();
-
-    assert_eq!(boss_abilities.len(), 1);
-    assert_eq!(boss_abilities[0].source.as_deref(), Some("Queen Ansurek"));
-    assert_eq!(boss_abilities[0].ability_name.as_deref(), Some("Devour"));
-    assert_ne!(boss_abilities[0].target.as_deref(), Some("Devour"));
-    assert_eq!(
-        snapshot.important_event_counts.get("BOSS_ABILITY").copied(),
-        Some(1)
-    );
-}
-
-#[test]
-fn records_titled_encounter_boss_by_short_name() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-    accumulator.consume_combat_log_line(
-        &build_line(
-            "ENCOUNTER_START",
-            &["1", "\"Sikran, Captain of the Sureki\"", "16"],
-        ),
-        1.0,
-    );
-
-    accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
-            "Creature-0-0-0-0-2002-0000000000",
-            "Sikran",
-            "0x10a48",
-            "434705",
-            "Phase Blades",
-        ),
-        8.0,
-    );
-
-    let snapshot = accumulator.snapshot();
-    let boss_ability = snapshot
-        .important_events
-        .iter()
-        .find(|event| event.event_type == "BOSS_ABILITY")
-        .expect("titled encounter source should match the boss short name");
-    assert_eq!(boss_ability.source.as_deref(), Some("Sikran"));
-    assert_eq!(boss_ability.ability_name.as_deref(), Some("Phase Blades"));
-}
-
-#[test]
-fn ignores_trash_npc_cast_during_encounter() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-    accumulator.consume_combat_log_line(
-        &build_line("ENCOUNTER_START", &["1", "\"Queen Ansurek\"", "16"]),
-        1.0,
-    );
-
-    accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
-            "Creature-0-0-0-0-3001-0000000000",
-            "Ascended Voidling",
-            "0x10a48",
-            "123456",
-            "Void Bolt",
-        ),
-        9.0,
-    );
-
-    let snapshot = accumulator.snapshot();
-    assert!(
-        snapshot
-            .important_events
-            .iter()
-            .all(|event| event.event_type != "BOSS_ABILITY"),
-        "trash-like NPC casts must not become boss abilities"
-    );
-}
-
-#[test]
-fn ignores_boss_cast_outside_encounter() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
-            "Creature-0-0-0-0-2001-0000000000",
-            "Queen Ansurek",
-            "0x10a48",
-            "443403",
-            "Devour",
-        ),
-        4.0,
-    );
-
-    let snapshot = accumulator.snapshot();
-    assert!(snapshot.important_events.is_empty());
-}
-
-#[test]
-fn records_vehicle_boss_ability_during_encounter() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-    accumulator.consume_combat_log_line(
-        &build_line("ENCOUNTER_START", &["1", "\"Plexus Sentinel\"", "16"]),
-        1.0,
-    );
-
-    accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
-            "Vehicle-0-0-0-0-2003-0000000000",
-            "Unknown Construct",
-            "0x10a48",
-            "122385",
-            "Purifying Light",
-        ),
-        15.0,
-    );
-
-    let snapshot = accumulator.snapshot();
-    let boss_ability = snapshot
-        .important_events
-        .iter()
-        .find(|event| event.event_type == "BOSS_ABILITY")
-        .expect("vehicle casters during an encounter should be treated as the boss");
-    assert_eq!(boss_ability.source.as_deref(), Some("Unknown Construct"));
-    assert_eq!(
-        boss_ability.ability_name.as_deref(),
-        Some("Purifying Light")
-    );
-}
-
-#[test]
-fn records_named_bosses_in_and_encounter_but_ignores_adds() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-    accumulator.consume_combat_log_line(
-        &build_line("ENCOUNTER_START", &["1", "\"Hans'gar and Franzok\"", "16"]),
-        1.0,
-    );
-
-    accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
-            "Creature-0-0-0-0-2005-0000000000",
-            "Hans'gar",
-            "0x10a48",
-            "160838",
-            "Body Slam",
-        ),
-        8.0,
-    );
-    accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
-            "Creature-0-0-0-0-2006-0000000000",
-            "Franzok",
-            "0x10a48",
-            "155818",
-            "Scorching Breath",
-        ),
-        10.0,
-    );
-    accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
-            "Creature-0-0-0-0-2007-0000000000",
-            "Blackrock Enforcer",
-            "0x10a48",
-            "155603",
-            "Cinder Toss",
-        ),
-        12.0,
-    );
-
-    let snapshot = accumulator.snapshot();
-    let boss_abilities: Vec<_> = snapshot
-        .important_events
-        .iter()
-        .filter(|event| event.event_type == "BOSS_ABILITY")
-        .collect();
-
-    assert_eq!(boss_abilities.len(), 2);
-    assert_eq!(boss_abilities[0].source.as_deref(), Some("Hans'gar"));
-    assert_eq!(boss_abilities[1].source.as_deref(), Some("Franzok"));
-    assert!(
-        boss_abilities
-            .iter()
-            .all(|event| event.source.as_deref() != Some("Blackrock Enforcer")),
-        "adds in an 'X and Y' encounter must not become boss abilities"
-    );
-}
-
-#[test]
-fn records_council_member_ability_for_multi_boss_encounter() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-    accumulator.consume_combat_log_line(
-        &build_line("ENCOUNTER_START", &["1", "\"The Silken Court\"", "16"]),
-        1.0,
-    );
-
-    accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
-            "Creature-0-0-0-0-2004-0000000000",
-            "Anub'arash",
-            "0x10a48",
-            "438245",
-            "Impaling Eruption",
-        ),
-        20.0,
-    );
-
-    let snapshot = accumulator.snapshot();
-    let boss_ability = snapshot
-        .important_events
-        .iter()
-        .find(|event| event.event_type == "BOSS_ABILITY")
-        .expect("council encounter members should be recorded without a name match");
-    assert_eq!(boss_ability.source.as_deref(), Some("Anub'arash"));
-    assert_eq!(
-        boss_ability.ability_name.as_deref(),
-        Some("Impaling Eruption")
-    );
-}
-
-#[test]
-fn ignores_melee_and_player_casts_during_encounter() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-    accumulator.consume_combat_log_line(
-        &build_line("ENCOUNTER_START", &["1", "\"Queen Ansurek\"", "16"]),
-        1.0,
-    );
-
-    accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
-            "Creature-0-0-0-0-2001-0000000000",
-            "Queen Ansurek",
-            "0x10a48",
-            "6603",
-            "Auto Attack",
-        ),
-        6.0,
-    );
-    accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
-            "Player-1111-00000002",
-            "DruidOne-NA",
-            "0x514",
-            "8921",
-            "Moonfire",
-        ),
-        7.0,
-    );
-
-    let snapshot = accumulator.snapshot();
-    assert!(
-        snapshot
-            .important_events
-            .iter()
-            .all(|event| event.event_type != "BOSS_ABILITY"),
-        "melee and player casts must stay off the boss-ability timeline"
-    );
-}
-
 #[test]
 fn bloodlust_still_wins_during_encounter() {
     let mut accumulator = RecordingMetadataAccumulator::default();
@@ -1353,7 +370,10 @@ fn bloodlust_still_wins_during_encounter() {
     );
 
     accumulator.consume_combat_log_line(
-        &build_untargeted_spell_cast_success_line(
+        &build_spell_cast_success_line(
+            "Player-1111-00000001",
+            "MageOne-NA",
+            "0x514",
             "Player-1111-00000001",
             "MageOne-NA",
             "0x514",
@@ -1368,64 +388,6 @@ fn bloodlust_still_wins_during_encounter() {
         .important_events
         .iter()
         .any(|event| event.event_type == "BLOODLUST"));
-    assert!(snapshot
-        .important_events
-        .iter()
-        .all(|event| event.event_type != "BOSS_ABILITY"));
-}
-
-#[test]
-fn ignores_rebirth_cast_success_in_favor_of_resurrect() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let rebirth_cast_line = build_line(
-        "SPELL_CAST_SUCCESS",
-        &[
-            "Player-1111-00000002",
-            "\"DruidOne-NA\"",
-            "0x514",
-            "0x0",
-            "Player-1111-00000003",
-            "\"DeadOne-NA\"",
-            "0x514",
-            "0x0",
-            "20484",
-            "\"Rebirth\"",
-            "8",
-        ],
-    );
-    accumulator.consume_combat_log_line(&rebirth_cast_line, 41.0);
-
-    let snapshot = accumulator.snapshot();
-    assert!(snapshot.important_events.is_empty());
-}
-
-#[test]
-fn ignores_soulstone_preapply_cast() {
-    let mut accumulator = RecordingMetadataAccumulator::default();
-    accumulator.begin_recording_session(0.0);
-
-    let soulstone_line = build_line(
-        "SPELL_CAST_SUCCESS",
-        &[
-            "Player-1111-00000004",
-            "\"LockOne-NA\"",
-            "0x514",
-            "0x0",
-            "Player-1111-00000003",
-            "\"DeadOne-NA\"",
-            "0x514",
-            "0x0",
-            "20707",
-            "\"Soulstone\"",
-            "32",
-        ],
-    );
-    accumulator.consume_combat_log_line(&soulstone_line, 3.0);
-
-    let snapshot = accumulator.snapshot();
-    assert!(snapshot.important_events.is_empty());
 }
 
 #[test]
@@ -1778,26 +740,13 @@ fn seeds_recording_context_from_recent_zone_state() {
 fn unmatched_encounter_end_uses_zero_start_time() {
     // An ENCOUNTER_END with no prior ENCOUNTER_START synthesizes a segment starting at 0.0.
     // The end time is the log-clock diff from the origin anchor.
-    // We anchor with a PARTY_KILL at 20:15:11.000, then end the encounter 42 s later
+    // We anchor with a player death at 20:15:11.000, then end the encounter 42 s later
     // at 20:15:53.000, so ended_at_seconds should be 42.0.
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.begin_recording_session(0.0);
 
     // First event: anchors session_log_origin_seconds to 20:15:11.000 (72911.0 s)
-    let anchor_line = build_line_at(
-        "PARTY_KILL",
-        &[
-            "Player-1111-00000001",
-            "\"PlayerOne-NA\"",
-            "0x514",
-            "0x0",
-            "Creature-0-0-0-0-1001-0000000000",
-            "\"Enemy0\"",
-            "0x10a48",
-            "0x0",
-        ],
-        "2/22 20:15:11.000",
-    );
+    let anchor_line = build_player_death_line("2/22 20:15:11.000", "Player-1111-00000001");
     accumulator.consume_combat_log_line(&anchor_line, 0.0);
 
     // Second event: 42 log-seconds later at 20:15:53.000 (72953.0 s)
@@ -1822,8 +771,8 @@ fn prefers_zone_name_over_numeric_zone_id() {
     let zone_line = build_line("ZONE_CHANGED", &["2450", "\"Nerub-ar Palace\""]);
     accumulator.consume_combat_log_line(&zone_line, 0.5);
 
-    let party_kill_line = build_party_kill_line(5);
-    accumulator.consume_combat_log_line(&party_kill_line, 1.0);
+    let death_line = build_indexed_player_death_line(5);
+    accumulator.consume_combat_log_line(&death_line, 1.0);
 
     let snapshot = accumulator.snapshot();
     assert_eq!(snapshot.zone_name.as_deref(), Some("Nerub-ar Palace"));
@@ -1837,8 +786,8 @@ fn map_change_updates_zone_context_with_zone_name() {
     let map_change_line = build_line("MAP_CHANGE", &["2450", "\"Nerub-ar Palace\""]);
     accumulator.consume_combat_log_line(&map_change_line, 0.5);
 
-    let party_kill_line = build_party_kill_line(6);
-    accumulator.consume_combat_log_line(&party_kill_line, 1.0);
+    let death_line = build_indexed_player_death_line(6);
+    accumulator.consume_combat_log_line(&death_line, 1.0);
 
     let snapshot = accumulator.snapshot();
     assert_eq!(snapshot.zone_name.as_deref(), Some("Nerub-ar Palace"));
@@ -1853,20 +802,7 @@ fn stale_log_timestamp_before_session_does_not_corrupt_event_timestamps() {
 
     accumulator.begin_recording_session(100.0);
 
-    let first_kill = build_line_at(
-        "PARTY_KILL",
-        &[
-            "Player-1111-00000001",
-            "\"PlayerOne-NA\"",
-            "0x514",
-            "0x0",
-            "Creature-0-0-0-0-1001-0000000000",
-            "\"Enemy0\"",
-            "0x10a48",
-            "0x0",
-        ],
-        "2/22 10:00:05.000",
-    );
+    let first_kill = build_player_death_line("2/22 10:00:05.000", "Player-1111-00000001");
     accumulator.consume_combat_log_line(&first_kill, 105.0);
 
     let snapshot = accumulator.snapshot();
@@ -1883,36 +819,10 @@ fn first_event_after_idle_gap_anchors_log_origin() {
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.begin_recording_session(0.0);
 
-    let first_kill = build_line_at(
-        "PARTY_KILL",
-        &[
-            "Player-1111-00000001",
-            "\"PlayerOne-NA\"",
-            "0x514",
-            "0x0",
-            "Creature-0-0-0-0-1001-0000000000",
-            "\"Enemy0\"",
-            "0x10a48",
-            "0x0",
-        ],
-        "2/22 20:00:00.000",
-    );
+    let first_kill = build_player_death_line("2/22 20:00:00.000", "Player-1111-00000001");
     accumulator.consume_combat_log_line(&first_kill, 0.0);
 
-    let second_kill = build_line_at(
-        "PARTY_KILL",
-        &[
-            "Player-1111-00000001",
-            "\"PlayerOne-NA\"",
-            "0x514",
-            "0x0",
-            "Creature-0-0-0-0-1002-0000000000",
-            "\"Enemy1\"",
-            "0x10a48",
-            "0x0",
-        ],
-        "2/22 20:00:30.000",
-    );
+    let second_kill = build_player_death_line("2/22 20:00:30.000", "Player-1111-00000002");
     accumulator.consume_combat_log_line(&second_kill, 30.0);
 
     let snapshot = accumulator.snapshot();
@@ -1926,42 +836,33 @@ fn midnight_rollover_computes_correct_elapsed_time() {
     let mut accumulator = RecordingMetadataAccumulator::default();
     accumulator.begin_recording_session(0.0);
 
-    let before_midnight = build_line_at(
-        "PARTY_KILL",
-        &[
-            "Player-1111-00000001",
-            "\"PlayerOne-NA\"",
-            "0x514",
-            "0x0",
-            "Creature-0-0-0-0-1001-0000000000",
-            "\"Enemy0\"",
-            "0x10a48",
-            "0x0",
-        ],
-        "2/22 23:59:50.000",
-    );
+    let before_midnight = build_player_death_line("2/22 23:59:50.000", "Player-1111-00000001");
     accumulator.consume_combat_log_line(&before_midnight, 0.0);
 
-    let after_midnight = build_line_at(
-        "PARTY_KILL",
-        &[
-            "Player-1111-00000001",
-            "\"PlayerOne-NA\"",
-            "0x514",
-            "0x0",
-            "Creature-0-0-0-0-1002-0000000000",
-            "\"Enemy1\"",
-            "0x10a48",
-            "0x0",
-        ],
-        "2/23 00:00:10.000",
-    );
+    let after_midnight = build_player_death_line("2/23 00:00:10.000", "Player-1111-00000002");
     accumulator.consume_combat_log_line(&after_midnight, 20.0);
 
     let snapshot = accumulator.snapshot();
     assert_eq!(snapshot.important_events.len(), 2);
     assert_eq!(snapshot.important_events[0].timestamp_seconds, 0.0);
     assert_eq!(snapshot.important_events[1].timestamp_seconds, 20.0);
+}
+
+fn build_indexed_player_death_line(index: usize) -> String {
+    build_line(
+        "UNIT_DIED",
+        &[
+            "0000000000000000",
+            "nil",
+            "0x80000000",
+            "0x80000000",
+            &format!("Player-1111-{:08x}", index + 1),
+            &format!("\"Player{index}-NA\""),
+            "0x512",
+            "0x80000000",
+            "0",
+        ],
+    )
 }
 
 fn build_player_death_line(log_timestamp: &str, dest_guid: &str) -> String {
@@ -2004,29 +905,6 @@ fn build_player_spell_damage_line(dest_guid: &str, amount: u64, overkill: i64) -
             "0",
             "0",
             "nil",
-        ],
-    )
-}
-
-fn build_player_spell_heal_line(dest_guid: &str, amount: u64) -> String {
-    build_line(
-        "SPELL_HEAL",
-        &[
-            "Player-1111-00000002",
-            "\"PriestOne-NA\"",
-            "0x514",
-            "0x0",
-            dest_guid,
-            "\"DeadOne-NA\"",
-            "0x514",
-            "0x0",
-            "2061",
-            "\"Flash Heal\"",
-            "2",
-            &amount.to_string(),
-            "0",
-            "0",
-            "1",
         ],
     )
 }
@@ -2247,39 +1125,13 @@ fn real_world_scenario_events_hours_apart_in_log() {
 
     // First kill happens at 2:00:05 PM, 5 seconds into recording (wall-clock)
     // This anchors the log-clock origin to 14:00:05 (50405 seconds since midnight)
-    let first_kill = build_line_at(
-        "PARTY_KILL",
-        &[
-            "Player-1111-00000001",
-            "\"PlayerOne-NA\"",
-            "0x514",
-            "0x0",
-            "Creature-0-0-0-0-1001-0000000000",
-            "\"Enemy0\"",
-            "0x10a48",
-            "0x0",
-        ],
-        "2/17 14:00:05.000", // 2 PM + 5 seconds
-    );
+    let first_kill = build_player_death_line("2/17 14:00:05.000", "Player-1111-00000001");
     let first_kill_elapsed = recording_start_elapsed + 5.0;
     accumulator.consume_combat_log_line(&first_kill, first_kill_elapsed);
 
     // Second kill at 2:00:30 PM, 30 seconds into recording (wall-clock)
     // Log-clock: 14:00:30 (50430) - 14:00:05 (50405) = 25 seconds
-    let second_kill = build_line_at(
-        "PARTY_KILL",
-        &[
-            "Player-1111-00000001",
-            "\"PlayerOne-NA\"",
-            "0x514",
-            "0x0",
-            "Creature-0-0-0-0-1002-0000000000",
-            "\"Enemy1\"",
-            "0x10a48",
-            "0x0",
-        ],
-        "2/17 14:00:30.000", // 2 PM + 30 seconds
-    );
+    let second_kill = build_player_death_line("2/17 14:00:30.000", "Player-1111-00000002");
     let second_kill_elapsed = recording_start_elapsed + 30.0;
     accumulator.consume_combat_log_line(&second_kill, second_kill_elapsed);
 
@@ -2307,44 +1159,17 @@ fn log_clock_fixes_time_compression_from_stale_watcher() {
     accumulator.begin_recording_session(0.0);
 
     // First UNIT_DIED at 15:35:00.9481 (log time)
-    let first_death = build_line_at(
-        "UNIT_DIED",
-        &[
-            "Creature-0-0-0-0-1001-0000000000",
-            "\"Stonewing-Garrosh\"",
-            "0xa48",
-            "0x0",
-        ],
-        "2/25/2026 15:35:00.9481",
-    );
+    let first_death = build_player_death_line("2/25/2026 15:35:00.9481", "Player-1-00000001");
     // Wall-clock thinks only 90.11 seconds have passed since app start
     accumulator.consume_combat_log_line(&first_death, 90.1099539);
 
     // Second UNIT_DIED at 15:35:25.3621 (log time) - 24.414 seconds later!
-    let second_death = build_line_at(
-        "UNIT_DIED",
-        &[
-            "Creature-0-0-0-0-1002-0000000000",
-            "\"Nuggie-Blackrock\"",
-            "0xa48",
-            "0x0",
-        ],
-        "2/25/2026 15:35:25.3621",
-    );
+    let second_death = build_player_death_line("2/25/2026 15:35:25.3621", "Player-1-00000002");
     // Wall-clock thinks only 0.332 seconds passed (90.44 - 90.11)
     accumulator.consume_combat_log_line(&second_death, 90.4418244);
 
     // Third UNIT_DIED at 15:35:35.8541 (log time) - 10.492 seconds after second
-    let third_death = build_line_at(
-        "UNIT_DIED",
-        &[
-            "Creature-0-0-0-0-1003-0000000000",
-            "\"Ahyawaska-KhazModan\"",
-            "0xa48",
-            "0x0",
-        ],
-        "2/25/2026 15:35:35.8541",
-    );
+    let third_death = build_player_death_line("2/25/2026 15:35:35.8541", "Player-1-00000003");
     // Wall-clock thinks only 0.086 seconds passed (90.527 - 90.441)
     accumulator.consume_combat_log_line(&third_death, 90.52762179999999);
 
@@ -2421,9 +1246,9 @@ fn encounter_start_anchors_timeline_when_recording_starts_mid_encounter() {
             "nil",
             "0x80000000",
             "0x80000000",
-            "Creature-0-4239-2810-5244-233815-00001F0A58",
-            "\"Sieve Mouse\"",
-            "0xa48",
+            "Player-1104-09EB9A1C",
+            "\"Sieve-Mouse\"",
+            "0x514",
             "0x80000000",
             "0",
         ],

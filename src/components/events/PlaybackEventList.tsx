@@ -9,7 +9,6 @@ import { getErrorMessage } from "../../services/tauri";
 import {
   EVENT_SEEK_OFFSET_SECONDS,
   getManualMarkerLabel,
-  isCrowdControlEventType,
   isVideoSeekBarEvent,
   MANUAL_MARKER_NAME_MAX_LENGTH,
   manualMarkerOccurrenceIndex,
@@ -25,53 +24,25 @@ import { NoteEditorDialog } from "./NoteEditorDialog";
 
 const EVENT_LIST_LABELS: Record<GameEventType, string> = {
   death: "Death",
-  interrupt: "Interrupt",
-  dispel: "Dispel",
   manual: "Marker",
-  kill: "Kill",
   bloodlust: "Bloodlust",
-  combatRes: "Combat Res",
-  defensive: "Defensive",
-  bigHit: "Big Hit",
-  heal: "Heal",
-  bossAbility: "Boss Ability",
-  crowdControl: "Crowd Control",
-  crowdControlBreak: "CC Break",
+  encounterStart: "Encounter start",
+  encounterEnd: "Encounter end",
   note: "Note",
 };
 
-function formatSourceTargetDetail(event: GameEvent): string {
-  const actors = `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
-  if (!event.extraSpellName) {
-    return actors;
-  }
-
-  return `${actors} (${event.extraSpellName})`;
-}
-
 const EVENT_LIST_FILTER_TYPES: GameEventType[] = [
+  "encounterStart",
+  "encounterEnd",
   "death",
-  "interrupt",
-  "dispel",
   "manual",
   "bloodlust",
-  "combatRes",
-  "defensive",
-  "bigHit",
-  "heal",
-  "bossAbility",
-  "crowdControl",
-  "crowdControlBreak",
   "note",
 ];
 
 function getEventListDetail(event: GameEvent): string {
   if (event.type === "death") {
     return formatUnitName(event.target);
-  }
-
-  if (event.type === "interrupt" || event.type === "dispel") {
-    return formatSourceTargetDetail(event);
   }
 
   if (event.type === "manual") {
@@ -82,37 +53,15 @@ function getEventListDetail(event: GameEvent): string {
     return formatUnitName(event.source);
   }
 
-  if (event.type === "combatRes") {
-    return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
-  }
-
-  if (event.type === "defensive") {
-    const sourceAndAbility = `${formatUnitName(event.source)} · ${event.abilityName ?? "Unknown"}`;
-    if (event.target && event.target !== event.source) {
-      return `${sourceAndAbility} → ${formatUnitName(event.target)}`;
-    }
-
-    return sourceAndAbility;
-  }
-
-  if (event.type === "bigHit" || event.type === "heal") {
-    return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
-  }
-
-  if (event.type === "bossAbility") {
-    return `${event.abilityName ?? "Unknown"} · ${formatUnitName(event.source)}`;
-  }
-
-  if (isCrowdControlEventType(event.type)) {
-    const actors = `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
-    return event.abilityName ? `${actors} · ${event.abilityName}` : actors;
+  if (event.type === "encounterStart" || event.type === "encounterEnd") {
+    return event.name ?? "Encounter";
   }
 
   if (event.type === "note") {
     return event.note ?? "Review note";
   }
 
-  return `${formatUnitName(event.source)} → ${formatUnitName(event.target)}`;
+  return formatUnitName(event.source);
 }
 
 interface ManualMarkerNameFormProps {
@@ -365,14 +314,12 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         {!videoSrc && !isRecording ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            Load a recording to see deaths, interrupts, dispels, crowd control, boss abilities,
-            defensives, hits, heals, markers, and notes.
+            Load a recording to see boss encounters, deaths, bloodlust, markers, and notes.
           </p>
         ) : !hasTimelineEvents ? (
           <p className="px-3 py-4 text-xs text-neutral-500">
-            No deaths, interrupts, dispels, bloodlust, combat res, crowd control, boss abilities,
-            defensives, hits, heals, markers, or notes in this recording. Import a combat log from
-            the player controls to add them.
+            No encounters, deaths, bloodlust, markers, or notes in this recording. Import a combat
+            log from the player controls to add them.
           </p>
         ) : listEvents.length === 0 ? (
           <p className="px-3 py-4 text-xs text-neutral-500">No events match the current filters.</p>
@@ -409,9 +356,7 @@ export function PlaybackEventList({ variant = "sidebar" }: PlaybackEventListProp
                           <span className="flex shrink-0 items-baseline gap-2">
                             {compactAmount ? (
                               <span
-                                className={`font-mono text-[11px] ${
-                                  event.type === "heal" ? "text-teal-300" : "text-orange-300"
-                                }`}
+                                className="font-mono text-[11px] text-orange-300"
                               >
                                 {compactAmount}
                               </span>

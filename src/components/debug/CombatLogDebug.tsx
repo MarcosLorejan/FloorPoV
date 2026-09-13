@@ -6,14 +6,8 @@ import {
   FileText,
   FolderOpen,
   RefreshCw,
-  Heart,
-  Shield,
-  ShieldOff,
   Skull,
-  Snowflake,
   Sparkles,
-  Sword,
-  Unlock,
   Zap,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
@@ -57,16 +51,10 @@ interface TimelineTooltipState {
 const MAX_MARKERS_PER_SEGMENT = 120;
 
 const ENCOUNTER_TIMELINE_LEGEND_TYPES = [
-  "PARTY_KILL",
+  "ENCOUNTER_START",
+  "ENCOUNTER_END",
   "UNIT_DIED",
-  "SPELL_INTERRUPT",
   "BLOODLUST",
-  "COMBAT_RES",
-  "DEFENSIVE",
-  "BOSS_ABILITY",
-  "CROWD_CONTROL",
-  "CROWD_CONTROL_BREAK",
-  "SPELL_DISPEL",
 ] as const;
 
 function getEncounterCategoryLabel(category: EncounterTimelineSegment["category"]): string {
@@ -97,26 +85,14 @@ function getEncounterCategoryClassName(category: EncounterTimelineSegment["categ
 
 function getEventMarkerClassName(eventType: string): string {
   switch (eventType) {
-    case "PARTY_KILL":
-      return "bg-neutral-200 border-neutral-50/85";
     case "UNIT_DIED":
       return "bg-rose-200 border-rose-50/85";
-    case "SPELL_INTERRUPT":
-      return "bg-amber-200 border-amber-50/85";
     case "BLOODLUST":
       return "bg-sky-200 border-sky-50/85";
-    case "COMBAT_RES":
-      return "bg-emerald-200 border-emerald-50/85";
-    case "DEFENSIVE":
-      return "bg-cyan-200 border-cyan-50/85";
-    case "BOSS_ABILITY":
+    case "ENCOUNTER_START":
       return "bg-fuchsia-200 border-fuchsia-50/85";
-    case "CROWD_CONTROL":
-      return "bg-violet-200 border-violet-50/85";
-    case "CROWD_CONTROL_BREAK":
-      return "bg-indigo-200 border-indigo-50/85";
-    case "SPELL_DISPEL":
-      return "bg-violet-200 border-violet-50/85";
+    case "ENCOUNTER_END":
+      return "bg-neutral-200 border-neutral-50/85";
     default:
       return "bg-neutral-200 border-neutral-50/80";
   }
@@ -124,26 +100,10 @@ function getEventMarkerClassName(eventType: string): string {
 
 function getEventMarkerIcon(eventType: string) {
   switch (eventType) {
-    case "PARTY_KILL":
-      return Sword;
     case "UNIT_DIED":
       return Skull;
-    case "SPELL_INTERRUPT":
-      return ShieldOff;
     case "BLOODLUST":
       return Zap;
-    case "COMBAT_RES":
-      return Heart;
-    case "DEFENSIVE":
-      return Shield;
-    case "BOSS_ABILITY":
-      return Sparkles;
-    case "CROWD_CONTROL":
-      return Snowflake;
-    case "CROWD_CONTROL_BREAK":
-      return Unlock;
-    case "SPELL_DISPEL":
-      return Sparkles;
     default:
       return Sparkles;
   }
@@ -151,26 +111,14 @@ function getEventMarkerIcon(eventType: string) {
 
 function getEventIconClassName(eventType: string): string {
   switch (eventType) {
-    case "PARTY_KILL":
-      return "text-neutral-950";
     case "UNIT_DIED":
       return "text-rose-950";
-    case "SPELL_INTERRUPT":
-      return "text-amber-950";
     case "BLOODLUST":
       return "text-sky-950";
-    case "COMBAT_RES":
-      return "text-emerald-950";
-    case "DEFENSIVE":
-      return "text-cyan-950";
-    case "BOSS_ABILITY":
+    case "ENCOUNTER_START":
       return "text-fuchsia-950";
-    case "CROWD_CONTROL":
-      return "text-violet-950";
-    case "CROWD_CONTROL_BREAK":
-      return "text-indigo-950";
-    case "SPELL_DISPEL":
-      return "text-violet-950";
+    case "ENCOUNTER_END":
+      return "text-neutral-950";
     default:
       return "text-neutral-900";
   }

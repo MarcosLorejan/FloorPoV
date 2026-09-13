@@ -214,18 +214,10 @@ export function GameModePage({ gameMode }: GameModePageProps) {
       return "Unknown";
     };
 
-    const kickCounts: Record<string, number> = {};
-    const dispelCounts: Record<string, number> = {};
     const deathCounts: Record<string, number> = {};
 
     for (const event of events) {
-      if (event.eventType === "SPELL_INTERRUPT" && event.source) {
-        const key = toPlayerLabel(event.source);
-        kickCounts[key] = (kickCounts[key] ?? 0) + 1;
-      } else if (event.eventType === "SPELL_DISPEL" && event.source) {
-        const key = toPlayerLabel(event.source);
-        dispelCounts[key] = (dispelCounts[key] ?? 0) + 1;
-      } else if (event.eventType === "UNIT_DIED" && event.target && event.targetKind === "PLAYER") {
+      if (event.eventType === "UNIT_DIED" && event.target && event.targetKind === "PLAYER") {
         const key = toPlayerLabel(event.target);
         deathCounts[key] = (deathCounts[key] ?? 0) + 1;
       }
@@ -243,8 +235,6 @@ export function GameModePage({ gameMode }: GameModePageProps) {
         });
 
     return {
-      kicks: toSorted(kickCounts),
-      dispels: toSorted(dispelCounts),
       deaths: toSorted(deathCounts),
     };
   }, [recordingMetadata?.importantEvents]);
@@ -399,24 +389,12 @@ export function GameModePage({ gameMode }: GameModePageProps) {
                       <PlayerOverviewTable players={recordingMetadata.players ?? []} />
                     </section>
 
-                    {(playerStats.kicks.length > 0 ||
-                      playerStats.dispels.length > 0 ||
-                      playerStats.deaths.length > 0) && (
+                    {playerStats.deaths.length > 0 && (
                       <section className="mt-3 rounded-sm border border-white/10 bg-(--surface-1)/80 p-3">
                         <h3 className="text-xs font-semibold uppercase tracking-[0.1em] text-neutral-300">
                           Player Stats
                         </h3>
-                        <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3">
-                          <PlayerStatChart
-                            title="Kicks"
-                            data={playerStats.kicks}
-                            color="#34d399"
-                          />
-                          <PlayerStatChart
-                            title="Dispels"
-                            data={playerStats.dispels}
-                            color="#60a5fa"
-                          />
+                        <div className="mt-3 grid grid-cols-1 gap-4">
                           <PlayerStatChart
                             title="Deaths"
                             data={playerStats.deaths}

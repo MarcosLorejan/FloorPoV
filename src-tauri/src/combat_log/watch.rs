@@ -8,6 +8,10 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use crate::recording::metadata::{
+    normalize_manual_marker_name, update_manual_marker_name_in_sidecar,
+};
+
 use super::metadata::{persist_recording_metadata_snapshot, RecordingMetadataAccumulator};
 use super::parse::{extract_combat_trigger_event, extract_log_timestamp, LogTimestamp};
 use super::{CombatEvent, CombatTriggerEvent, CombatWatchStatusEvent, EVENT_MANUAL_MARKER};
@@ -303,14 +307,93 @@ pub async fn emit_manual_marker(app_handle: AppHandle) -> Result<(), String> {
                 event_type: EVENT_MANUAL_MARKER.to_string(),
                 source: None,
                 target: None,
+                extra_spell_name: None,
+                amount: None,
+                ability_name: None,
+                name: None,
             };
             emit_combat_event(&app_handle, &event);
+            persist_watch_metadata_if_configured(watch_state);
         }
 
         return Ok(());
     }
 
     Err("Combat watch not running".to_string())
+}
+
+/// Names the manual marker at `timestamp_seconds`, or clears the name when `name` is absent.
+///
+/// A marker from the session that is still recording lives in the accumulator, which owns the
+/// sidecar while the watch runs. Markers from an older recording are edited in the sidecar
+/// directly, so `file_path` is required for that case.
+#[tauri::command]
+pub fn update_manual_marker_name(
+    file_path: Option<String>,
+    timestamp_seconds: f64,
+    occurrence: Option<u32>,
+    name: Option<String>,
+) -> Result<(), String> {
+    let normalized_name = normalize_manual_marker_name(name);
+    let occurrence = occurrence.unwrap_or(0) as usize;
+
+    if update_live_manual_marker_name(timestamp_seconds, occurrence, normalized_name.clone())? {
+        return Ok(());
+    }
+
+    let recording_path = file_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Recording path is required to name a marker".to_string())?;
+
+    update_manual_marker_name_in_sidecar(
+        Path::new(recording_path),
+        timestamp_seconds,
+        occurrence,
+        normalized_name,
+    )
+}
+
+fn update_live_manual_marker_name(
+    timestamp_seconds: f64,
+    occurrence: usize,
+    name: Option<String>,
+) -> Result<bool, String> {
+    let state = WATCH_STATE.lock().map_err(|error| error.to_string())?;
+    let Some(watch_state) = state.as_ref() else {
+        return Ok(false);
+    };
+
+    let marker_was_named = {
+        let mut metadata_accumulator = watch_state
+            .metadata_accumulator
+            .lock()
+            .map_err(|error| error.to_string())?;
+        if !metadata_accumulator.is_recording_session_active() {
+            return Ok(false);
+        }
+
+        metadata_accumulator.set_manual_marker_name(timestamp_seconds, occurrence, name)
+    };
+
+    if !marker_was_named {
+        return Ok(false);
+    }
+
+    if let Some(recording_output_path) = watch_state.recording_output_path.as_deref() {
+        persist_recording_metadata_snapshot(
+            recording_output_path,
+            &watch_state.metadata_accumulator,
+        )?;
+    } else {
+        tracing::warn!(
+            timestamp_seconds,
+            "Named a live manual marker with no recording output path, name is not persisted yet"
+        );
+    }
+
+    Ok(true)
 }
 
 fn emit_combat_event(app_handle: &AppHandle, event: &CombatEvent) {

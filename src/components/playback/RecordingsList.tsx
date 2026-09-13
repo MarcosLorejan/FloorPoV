@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import { Clock3, Film, HardDrive, RefreshCw, Trash2, XCircle } from 'lucide-react';
+import { Clock3, Columns2, Film, HardDrive, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useRecording } from '../../contexts/RecordingContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useVideo } from '../../contexts/VideoContext';
@@ -11,8 +11,13 @@ import { panelVariants, smoothTransition } from '../../lib/motion';
 import { RecordingInfo } from '../../types/recording';
 import { type GameMode } from '../../types/ui';
 import { formatBytes, formatDate } from '../../utils/format';
+import { canEnterCompareMode, isComparedRecordingPath } from '../../utils/compare-playback';
+import { toPlaybackSource } from '../../utils/recording-playback';
+import { filterRecordingsBySearchQuery } from '../../utils/recording-search';
 import { getRecordingDisplayTitle, isRecordingInGameMode } from '../../utils/recording-title';
 import { DeleteConfirmDialog } from '../ui/DeleteConfirmDialog';
+import { FormField } from '../ui/FormField';
+import { Input } from '../ui/Input';
 import { useRecordingSelection } from './useRecordingSelection';
 
 interface RecordingsListProps {
@@ -88,19 +93,18 @@ export function RecordingsList({
   onRecordingActivate,
 }: RecordingsListProps) {
   const { settings } = useSettings();
-  const { loadVideo, videoSrc, isVideoLoading } = useVideo();
+  const { loadVideo, videoSrc, isVideoLoading, compareVideos, enterCompareMode } = useVideo();
   const { isRecording, loadPlaybackMetadata } = useRecording();
   const reduceMotion = useReducedMotion();
   const { recordings, isLoading, error: listError, loadRecordings, setRecordings } = useRecordingsList();
   useClearStalePlayback(recordings, !isLoading && !listError);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loadingRecordingPath, setLoadingRecordingPath] = useState<string | null>(null);
   const [deletingRecordingPaths, setDeletingRecordingPaths] = useState<string[]>([]);
   const [pendingDeleteRecordings, setPendingDeleteRecordings] = useState<RecordingInfo[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const recordingsContainerRef = useRef<HTMLDivElement>(null);
   const displayError = deleteError ?? listError;
-  const deleteDialogRef = useRef<HTMLDivElement>(null);
-  const cancelDeleteButtonRef = useRef<HTMLButtonElement>(null);
-  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   const isDeletingRecordings = deletingRecordingPaths.length > 0;
   const hasPendingDeleteRecordings = pendingDeleteRecordings.length > 0;
   const deletingRecordingPathSet = useMemo(() => {
@@ -112,13 +116,16 @@ export function RecordingsList({
     isDeletingRecordings ||
     hasPendingDeleteRecordings ||
     isVideoLoading;
-  const filteredRecordings = useMemo(() => {
+  const scopedRecordings = useMemo(() => {
     if (!gameModeContext) {
       return recordings;
     }
 
     return recordings.filter((recording) => isRecordingInGameMode(recording, gameModeContext));
   }, [gameModeContext, recordings]);
+  const filteredRecordings = useMemo(() => {
+    return filterRecordingsBySearchQuery(scopedRecordings, searchQuery, gameModeContext);
+  }, [gameModeContext, scopedRecordings, searchQuery]);
 
   const handleLoadRecording = useCallback(async (recording: RecordingInfo) => {
     if (isRecording || loadingRecordingPath || isDeletingRecordings || isVideoLoading) {
@@ -131,7 +138,7 @@ export function RecordingsList({
     try {
       await loadPlaybackMetadata(recording.file_path);
 
-      const recordingSource = convertFileSrc(recording.file_path);
+      const recordingSource = await toPlaybackSource(recording.file_path, settings.outputFolder);
       loadVideo(recordingSource, recording.file_path);
       onRecordingActivate?.(recording);
     } catch (loadError) {
@@ -148,6 +155,7 @@ export function RecordingsList({
     loadVideo,
     loadingRecordingPath,
     onRecordingActivate,
+    settings.outputFolder,
   ]);
 
   const {
@@ -162,10 +170,14 @@ export function RecordingsList({
     handleSelectionControlMouseDown,
     updateSelectionAfterDelete,
   } = useRecordingSelection<RecordingInfo>({
-    recordings: filteredRecordings,
+    recordings: scopedRecordings,
+    visibleRecordings: filteredRecordings,
     isActionLocked,
     onPlainActivate: handleLoadRecording,
   });
+  const visibleSelectedCount = useMemo(() => {
+    return filteredRecordings.filter((recording) => selectedRecordingPathSet.has(recording.file_path)).length;
+  }, [filteredRecordings, selectedRecordingPathSet]);
 
   const handleDeleteRecording = useCallback((recording: RecordingInfo) => {
     if (isActionLocked) {
@@ -183,6 +195,53 @@ export function RecordingsList({
     setPendingDeleteRecordings(selectedRecordings);
   }, [isActionLocked, selectedRecordings]);
 
+  const handleCompareSelectedRecordings = useCallback(async () => {
+    if (isActionLocked || !canEnterCompareMode(selectedRecordingCount)) {
+      return;
+    }
+
+    const leftRecording = selectedRecordings[0];
+    const rightRecording = selectedRecordings[1];
+    if (!leftRecording || !rightRecording) {
+      return;
+    }
+
+    setLoadingRecordingPath(leftRecording.file_path);
+    setDeleteError(null);
+
+    try {
+      const [leftSrc, rightSrc] = await Promise.all([
+        toPlaybackSource(leftRecording.file_path, settings.outputFolder),
+        toPlaybackSource(rightRecording.file_path, settings.outputFolder),
+      ]);
+
+      enterCompareMode(
+        {
+          src: leftSrc,
+          filePath: leftRecording.file_path,
+          title: getRecordingDisplayTitle(leftRecording, gameModeContext),
+        },
+        {
+          src: rightSrc,
+          filePath: rightRecording.file_path,
+          title: getRecordingDisplayTitle(rightRecording, gameModeContext),
+        },
+      );
+    } catch (compareError) {
+      console.error('Failed to start compare mode:', compareError);
+      setDeleteError('Could not load the selected recordings for compare.');
+    } finally {
+      setLoadingRecordingPath(null);
+    }
+  }, [
+    enterCompareMode,
+    gameModeContext,
+    isActionLocked,
+    selectedRecordingCount,
+    selectedRecordings,
+    settings.outputFolder,
+  ]);
+
   const cancelDeleteRecording = useCallback(() => {
     if (isDeletingRecordings) {
       return;
@@ -190,55 +249,6 @@ export function RecordingsList({
 
     setPendingDeleteRecordings([]);
   }, [isDeletingRecordings]);
-
-  useEffect(() => {
-    if (!hasPendingDeleteRecordings) {
-      previouslyFocusedElementRef.current?.focus();
-      return;
-    }
-
-    previouslyFocusedElementRef.current = document.activeElement as HTMLElement | null;
-    cancelDeleteButtonRef.current?.focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        cancelDeleteRecording();
-        return;
-      }
-
-      if (event.key !== 'Tab' || !deleteDialogRef.current) {
-        return;
-      }
-
-      const focusableElements = Array.from(
-        deleteDialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      );
-
-      if (focusableElements.length === 0) {
-        return;
-      }
-
-      const firstElement = focusableElements[0];
-      const lastElement = focusableElements[focusableElements.length - 1];
-      const activeElement = document.activeElement as HTMLElement | null;
-
-      if (event.shiftKey && activeElement === firstElement) {
-        event.preventDefault();
-        lastElement.focus();
-      } else if (!event.shiftKey && activeElement === lastElement) {
-        event.preventDefault();
-        firstElement.focus();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [cancelDeleteRecording, hasPendingDeleteRecordings]);
 
   const confirmDeleteRecording = useCallback(async () => {
     if (
@@ -346,9 +356,24 @@ export function RecordingsList({
         </motion.button>
       </div>
 
+      {settings.outputFolder && (
+        <FormField id="library-recordings-search" label="Search" className="mb-2">
+          <Input
+            id="library-recordings-search"
+            type="search"
+            variant="filter"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search by title, zone, encounter, or file name"
+          />
+        </FormField>
+      )}
+
       {displayError && <p className="mb-2 text-xs text-red-300" role="status">{displayError}</p>}
 
       <div
+        ref={recordingsContainerRef}
+        tabIndex={-1}
         className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]"
         aria-busy={isLoading}
       >
@@ -356,10 +381,17 @@ export function RecordingsList({
           <p className="px-1 py-6 text-sm text-neutral-400">
             Choose an output folder in Settings to see recordings here.
           </p>
-        ) : filteredRecordings.length === 0 && !isLoading ? (
+        ) : scopedRecordings.length === 0 && !isLoading ? (
           <div className="px-1 py-6">
             <p className="text-sm text-neutral-300">No recordings in this folder yet</p>
             <p className="mt-1 text-xs text-neutral-500">{settings.outputFolder}</p>
+          </div>
+        ) : filteredRecordings.length === 0 && !isLoading ? (
+          <div className="px-1 py-6">
+            <p className="text-sm text-neutral-300">No recordings match your search</p>
+            <p className="mt-1 text-xs text-neutral-500">
+              Try a different title, zone, encounter, or file name.
+            </p>
           </div>
         ) : (
           <>
@@ -368,13 +400,13 @@ export function RecordingsList({
                 <label className="ml-2 inline-flex h-6 w-6 items-center justify-center">
                   <input
                     type="checkbox"
-                    checked={selectedRecordingCount > 0 && selectedRecordingCount === filteredRecordings.length}
+                    checked={visibleSelectedCount > 0 && visibleSelectedCount === filteredRecordings.length}
                     ref={(el) => {
                       if (el) {
-                        el.indeterminate = selectedRecordingCount > 0 && selectedRecordingCount < filteredRecordings.length;
+                        el.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < filteredRecordings.length;
                       }
                     }}
-                    onChange={selectedRecordingCount === filteredRecordings.length ? clearSelection : selectAll}
+                    onChange={visibleSelectedCount === filteredRecordings.length ? clearSelection : selectAll}
                     disabled={isActionLocked || filteredRecordings.length === 0}
                      className="h-3.5 w-3.5 rounded-sm border-white/30 bg-black/30 accent-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label={selectedRecordingCount === filteredRecordings.length ? "Deselect all recordings" : "Select all recordings"}
@@ -398,6 +430,22 @@ export function RecordingsList({
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      void handleCompareSelectedRecordings();
+                    }}
+                    disabled={isActionLocked || !canEnterCompareMode(selectedRecordingCount)}
+                    title={
+                      canEnterCompareMode(selectedRecordingCount)
+                        ? "Compare the two selected recordings"
+                        : "Select exactly two recordings to compare"
+                    }
+                    className="inline-flex h-6 items-center gap-1 rounded-sm border border-white/20 bg-black/20 px-2 text-xs text-neutral-200 transition-colors hover:bg-white/10 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Columns2 className="h-3.5 w-3.5 shrink-0" />
+                    Compare
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleDeleteSelectedRecordings}
                     disabled={isActionLocked || selectedRecordings.length === 0}
                     className="inline-flex h-6 items-center gap-1 rounded-sm border border-rose-300/35 bg-rose-500/14 px-2 text-xs font-medium text-rose-100 transition-colors hover:bg-rose-500/22 hover:text-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
@@ -415,6 +463,7 @@ export function RecordingsList({
               const isLoadedRecording = videoSrc === recordingSource;
               const isSelectedRecording = selectedRecordingPathSet.has(recording.file_path);
               const isActiveRecording = activeRecordingPath === recording.file_path;
+              const isComparedRecording = isComparedRecordingPath(recording.file_path, compareVideos);
               const modeDetails = getModeDetails(recording, gameModeContext);
               const displayTitle = getRecordingDisplayTitle(recording, gameModeContext);
 
@@ -422,7 +471,7 @@ export function RecordingsList({
                 <motion.li
                   key={`${recording.filename}-${recording.created_at}`}
                   className={`grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 rounded-sm border text-left transition-colors hover:bg-white/5 ${
-                    isLoadedRecording || isActiveRecording
+                    isLoadedRecording || isActiveRecording || isComparedRecording
                       ? 'border-emerald-300/45 bg-emerald-500/16 hover:border-emerald-300/55'
                       : isSelectedRecording
                           ? 'border-emerald-300/35 bg-emerald-500/10 hover:border-emerald-300/45'
@@ -449,7 +498,11 @@ export function RecordingsList({
                     onMouseDown={(event) => handleRecordingRowMouseDown(event, recording)}
                     onClick={(event) => handleRecordingRowClick(event, recording)}
                     disabled={isActionLocked}
-                    aria-current={isLoadedRecording || isActiveRecording ? 'true' : undefined}
+                    aria-current={
+                      isLoadedRecording || isActiveRecording || isComparedRecording
+                        ? 'true'
+                        : undefined
+                    }
                     className="min-w-0 flex w-full items-center justify-between gap-2 rounded-sm px-2.5 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="min-w-0 flex items-center gap-2">
@@ -497,10 +550,9 @@ export function RecordingsList({
 
       {hasPendingDeleteRecordings && (
         <DeleteConfirmDialog
-          dialogRef={deleteDialogRef}
-          cancelButtonRef={cancelDeleteButtonRef}
           titleId="delete-recording-title"
           descriptionId="delete-recording-description"
+          fallbackFocusRef={recordingsContainerRef}
           title={isBulkDelete ? 'Delete recordings?' : 'Delete recording?'}
           description={
             isBulkDelete ? (

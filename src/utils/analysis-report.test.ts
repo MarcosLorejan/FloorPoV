@@ -111,9 +111,9 @@ describe("analysis report contents", () => {
     expect(markdown).toContain("Mythic+");
     expect(markdown).toContain("| Tank\\|One | Warrior | Protection |");
     expect(markdown).toContain("| Boss One | Mythic+ | 0:12 | 2:05 |");
-    expect(markdown).toContain("- Interrupt: 3");
+    expect(markdown).toContain("- SPELL_INTERRUPT: 3");
     expect(markdown).toContain("2 high-volume events were dropped during buffering.");
-    expect(markdown).toContain("| 0:12 | Interrupt | Kicker-Realm | Caster\\|Mob | Boss One |");
+    expect(markdown).toContain("| 0:12 | SPELL_INTERRUPT | Kicker-Realm | Caster\\|Mob | Boss One |");
   });
 
   test("renders empty markdown sections when metadata is missing", () => {

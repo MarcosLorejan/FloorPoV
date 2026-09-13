@@ -1,11 +1,18 @@
-import { Flag, Heart, ShieldOff, Skull, Sword, Zap } from "lucide-react";
+import {
+  CircleStop,
+  Flag,
+  Skull,
+  StickyNote,
+  Swords,
+  Zap,
+} from "lucide-react";
 import { useMarker } from "../../contexts/MarkerContext";
-import { GameEvent } from "../../types/events";
+import { GameEventType } from "../../types/events";
 
 type EventMarkerVariant = "compact" | "detailed";
 
 interface EventMarkerProps {
-  type: GameEvent["type"];
+  type: GameEventType;
   variant?: EventMarkerVariant;
   className?: string;
 }
@@ -20,20 +27,16 @@ const ICON_CLASS_NAMES: Record<EventMarkerVariant, string> = {
   detailed: "h-4.5 w-4.5",
 };
 
-const ICONS: Record<GameEvent["type"], React.ComponentType<{ className?: string }>> = {
-  kill: Sword,
+const ICONS: Record<GameEventType, React.ComponentType<{ className?: string }>> = {
   death: Skull,
   manual: Flag,
-  interrupt: ShieldOff,
   bloodlust: Zap,
-  combatRes: Heart,
+  encounterStart: Swords,
+  encounterEnd: CircleStop,
+  note: StickyNote,
 };
 
-const MARKER_CLASS_NAMES: Record<GameEvent["type"], Record<EventMarkerVariant, string>> = {
-  kill: {
-    compact: "rounded-full bg-neutral-500 text-neutral-900",
-    detailed: "rounded-full border border-neutral-100/45 bg-neutral-500 text-neutral-900",
-  },
+const MARKER_CLASS_NAMES: Record<GameEventType, Record<EventMarkerVariant, string>> = {
   death: {
     compact: "rounded-full bg-rose-500 text-rose-950",
     detailed: "rounded-full border border-rose-200/40 bg-rose-500 text-rose-950",
@@ -42,17 +45,21 @@ const MARKER_CLASS_NAMES: Record<GameEvent["type"], Record<EventMarkerVariant, s
     compact: "rounded-sm bg-neutral-400 text-neutral-900",
     detailed: "rounded-sm border border-neutral-100/55 bg-neutral-400 text-neutral-900",
   },
-  interrupt: {
-    compact: "rounded-full bg-amber-400 text-amber-950",
-    detailed: "rounded-full border border-amber-200/40 bg-amber-400 text-amber-950",
-  },
   bloodlust: {
     compact: "rounded-full bg-sky-400 text-sky-950",
     detailed: "rounded-full border border-sky-200/40 bg-sky-400 text-sky-950",
   },
-  combatRes: {
-    compact: "rounded-full bg-emerald-400 text-emerald-950",
-    detailed: "rounded-full border border-emerald-200/40 bg-emerald-400 text-emerald-950",
+  encounterStart: {
+    compact: "rounded-full bg-fuchsia-400 text-fuchsia-950",
+    detailed: "rounded-full border border-fuchsia-200/40 bg-fuchsia-400 text-fuchsia-950",
+  },
+  encounterEnd: {
+    compact: "rounded-full bg-neutral-300 text-neutral-900",
+    detailed: "rounded-full border border-neutral-100/45 bg-neutral-300 text-neutral-900",
+  },
+  note: {
+    compact: "rounded-sm bg-violet-400 text-violet-950",
+    detailed: "rounded-sm border border-violet-200/40 bg-violet-400 text-violet-950",
   },
 };
 
@@ -68,19 +75,26 @@ export function EventMarker({ type, variant = "compact", className }: EventMarke
   );
 }
 
-const EVENT_TYPE_FILTER_LABELS: Record<GameEvent["type"], string> = {
+const EVENT_TYPE_FILTER_LABELS: Record<GameEventType, string> = {
   death: "Deaths",
-  interrupt: "Interrupts",
   manual: "Markers",
-  kill: "Kills",
   bloodlust: "Bloodlust",
-  combatRes: "Combat Res",
+  encounterStart: "Encounter start",
+  encounterEnd: "Encounter end",
+  note: "Notes",
 };
 
-const DEFAULT_EVENT_TYPE_FILTERS: GameEvent["type"][] = ["death", "interrupt", "manual", "kill"];
+const DEFAULT_EVENT_TYPE_FILTERS: GameEventType[] = [
+  "encounterStart",
+  "encounterEnd",
+  "death",
+  "bloodlust",
+  "manual",
+  "note",
+];
 
 interface EventTypeFilterProps {
-  types?: GameEvent["type"][];
+  types?: GameEventType[];
 }
 
 export function EventTypeFilter({ types = DEFAULT_EVENT_TYPE_FILTERS }: EventTypeFilterProps) {
